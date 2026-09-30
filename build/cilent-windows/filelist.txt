@@ -1,0 +1,14 @@
+# One file path per line, relative to the project root.
+# Blank lines and lines beginning with # are ignored.
+
+MainUI.html
+back.png
+
+frontend\nplayer\index.min.js
+frontend\nplayer\nplayer.min.js
+frontend\classify_shower_video.js
+frontend\classify_shower.js
+frontend\frame.js
+frontend\treemap.js
+
+

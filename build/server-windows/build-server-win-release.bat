@@ -4,7 +4,7 @@ chcp 65001 >nul
 
 rem Resolve every path from this script, so build-release.bat can be launched anywhere.
 set "BUILD_DIR=%~dp0"
-for %%I in ("%BUILD_DIR%..") do set "PROJECT_ROOT=%%~fI"
+for %%I in ("%BUILD_DIR%../../") do set "PROJECT_ROOT=%%~fI"
 set "FILE_LIST=%BUILD_DIR%filelist.txt"
 set "RELEASE_DIR=%BUILD_DIR%release"
 

@@ -1,12 +1,10 @@
 # One file path per line, relative to the project root.
 # Blank lines and lines beginning with # are ignored.
 
-back.png
 icon.ico
 install.bat
 install.py
-MainUI.html
-start.bat
+server.bat
 
 backend\back.py
 backend\classify_shower_back.py
@@ -17,9 +15,3 @@ backend\config\file_type.py
 backend\config\module_config.json
 backend\config\treemap_config.json
 
-frontend\classify_shower_video.js
-frontend\classify_shower.js
-frontend\frame.js
-frontend\treemap.js
-frontend\nplayer\index.min.js
-frontend\nplayer\nplayer.min.js

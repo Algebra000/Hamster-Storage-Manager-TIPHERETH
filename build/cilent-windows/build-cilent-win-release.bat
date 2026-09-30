@@ -2,9 +2,9 @@
 setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul
 
-rem Resolve every path from this script, so build.bat can be launched anywhere.
+rem Resolve every path from this script, so build-release.bat can be launched anywhere.
 set "BUILD_DIR=%~dp0"
-for %%I in ("%BUILD_DIR%..") do set "PROJECT_ROOT=%%~fI"
+for %%I in ("%BUILD_DIR%../../") do set "PROJECT_ROOT=%%~fI"
 set "FILE_LIST=%BUILD_DIR%filelist.txt"
 set "RELEASE_DIR=%BUILD_DIR%release"
 
@@ -67,7 +67,14 @@ if not exist "%DESTINATION_PARENT%" (
     )
 )
 
-copy /y /b "%SOURCE_PATH%" "%DESTINATION_PATH%" >nul
+for %%E in ("%SOURCE_PATH%") do set "SOURCE_EXTENSION=%%~xE"
+if /i "%SOURCE_EXTENSION%"==".py" (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%BUILD_DIR%strip-debug.ps1"
+) else if /i "%SOURCE_EXTENSION%"==".js" (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%BUILD_DIR%strip-debug.ps1"
+) else (
+    copy /y /b "%SOURCE_PATH%" "%DESTINATION_PATH%" >nul
+)
 if errorlevel 1 (
     echo [COPY FAILED] %RELATIVE_PATH%
     set /a FAILED_COUNT+=1
