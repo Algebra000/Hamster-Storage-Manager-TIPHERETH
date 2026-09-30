@@ -91,7 +91,9 @@ frontend/nplayer/index.html
 关联项目/评论json转db/v1/test/
 
 #发行版本
-build/release/
+build/cilent-windows/release/
+build/server-windows/release/
+build/server-linux/release/
 
 #项目外部文件
 show_tree.bat
