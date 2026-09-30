@@ -30,13 +30,18 @@ if errorlevel 1 goto failed
 if errorlevel 1 goto failed
 rem Make this interpreter available to install.py and its child processes.
 for %%P in ("%PYTHON_EXE%") do set "PATH=%%~dpP;%%~dpPScripts;%PATH%"
-echo 正在运行安装向导...
+echo 正在安装服务端依赖...
+"%PYTHON_EXE%" -m pip install -r "%~dp0requirements.txt"
+if errorlevel 1 goto failed
+
+echo 正在运行服务端配置向导...
 "%PYTHON_EXE%" "%~dp0install.py"
 if errorlevel 1 goto failed
 
-powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $WshShell = New-Object -ComObject WScript.Shell; $desktop = [System.Environment]::GetFolderPath('Desktop'); $lnk = $WshShell.CreateShortcut([System.IO.Path]::Combine($desktop, '仓鼠存储管理器.lnk')); $lnk.TargetPath = Join-Path (Get-Location).Path 'start.bat'; $lnk.IconLocation = Join-Path (Get-Location).Path 'icon.ico'; $lnk.WorkingDirectory = (Get-Location).Path; $lnk.Save()"
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $WshShell = New-Object -ComObject WScript.Shell; $desktop = [System.Environment]::GetFolderPath('Desktop'); $lnk = $WshShell.CreateShortcut([System.IO.Path]::Combine($desktop, '启动后端服务.lnk')); $lnk.TargetPath = Join-Path (Get-Location).Path 'server.bat'; $lnk.IconLocation = Join-Path (Get-Location).Path 'icon.ico'; $lnk.WorkingDirectory = (Get-Location).Path; $lnk.Save()"
 if errorlevel 1 goto failed
-echo 快捷方式已创建在桌面：仓鼠存储管理器.lnk
+echo 服务端安装完成。桌面快捷方式已创建：启动后端服务。
+echo 双击该快捷方式即可启动后端服务。
 popd
 pause
 exit /b 0
@@ -47,7 +52,7 @@ popd
 exit /b 1
 
 :failed
-echo 安装失败，未完成快捷方式创建。请检查上方错误信息后重试。
+echo 服务端安装失败。请检查上方错误信息后重试。
 popd
 pause
 exit /b 1
