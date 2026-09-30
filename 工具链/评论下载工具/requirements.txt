@@ -1,4 +1,0 @@
-httpx
-aiohttp
-colorama
-pycryptodomex
