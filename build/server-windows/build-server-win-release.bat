@@ -51,6 +51,13 @@ if "%RELATIVE_PATH:~0,1%"=="#" exit /b 0
 set "SOURCE_PATH=%PROJECT_ROOT%\%RELATIVE_PATH%"
 set "DESTINATION_PATH=%RELEASE_DIR%\%RELATIVE_PATH%"
 
+rem A fresh checkout may only contain an example for a local JSON config.
+if not exist "%SOURCE_PATH%" (
+    for %%E in ("%SOURCE_PATH%") do if /i "%%~xE"==".json" (
+        if exist "%%~dpnE.example.json" set "SOURCE_PATH=%%~dpnE.example.json"
+    )
+)
+
 if not exist "%SOURCE_PATH%" (
     echo [MISSING] %RELATIVE_PATH%
     set /a FAILED_COUNT+=1
