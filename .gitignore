@@ -78,6 +78,7 @@ frontend/背景图/
 关联项目/bilibiliAPI/更改/文档/
 
 #测试数据
+tests/
 关联项目/bilibiliAPI/bilibili_comment_viewer/test/
 关联项目/bilibiliAPI/test/
 工具链/b站首页动画背景/res/

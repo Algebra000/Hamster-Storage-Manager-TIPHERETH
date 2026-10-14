@@ -2,6 +2,7 @@
 # Blank lines and lines beginning with # are ignored.
 
 MainUI.html
+icon.ico
 back.png
 
 frontend\nplayer\index.min.js

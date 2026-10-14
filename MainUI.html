@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <link rel="manifest" href="manifest.json">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="./icon.ico" type="image/x-icon">
-    <title>网页文件查看器 - ROLAND 1.0.0</title>
+    <title>网页文件查看器 - TIPHERETH 1.0.0</title>
     <script>
         // 函数列表
         const when_connect_func_list = [];
@@ -11,7 +12,7 @@
         const message_proc_func_list = [];
         const binary_message_proc_func_list = [];
         const onload_func_list = [];
-        const VERSION_NAME = "ROLAND";
+        const VERSION_NAME = "TIPHERETH";
         const VERSION = "1.0.0";
         function get_version()
         {
@@ -19,6 +20,30 @@
                 version_name: VERSION_NAME,
                 version: VERSION
             };
+        }
+    </script>
+    <script>
+        // 统一地址接口；rootId 从后端 /api/server-info 的 resource_roots 获取。
+        function get_backend_http_url(path = '') {
+            if (!socket) throw new Error('尚未选择后端连接');
+            const url = new URL(socket.url);
+            url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+            url.pathname = '/';
+            url.search = '';
+            url.hash = '';
+            const result = new URL(path, url);
+            if (result.origin !== url.origin) throw new Error('资源必须属于当前后端');
+            return result.href;
+        }
+        function get_resource_url(rootId, relativePath) {
+            if (typeof rootId !== 'string' || !rootId || rootId === '.' || rootId === '..'
+                || typeof relativePath !== 'string') throw new Error('无效的资源路径');
+            const parts = String(relativePath).replace(/\\/g, '/').split('/');
+            if (!rootId || parts.some(part => !part || part === '.' || part === '..')) {
+                throw new Error('无效的资源路径');
+            }
+            return get_backend_http_url('/resources/' + encodeURIComponent(rootId)
+                + '/' + parts.map(encodeURIComponent).join('/'));
         }
     </script>
     <script src="./frontend/frame.js"></script>
@@ -80,30 +105,33 @@
             opacity: 1;
             z-index: 100;
             position: fixed;
+            display: grid;
+            grid-template-columns: 130px auto minmax(80px, 1fr) auto minmax(190px, 260px) auto;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            box-sizing: border-box;
         }
 
         #connectstateTXT
         {
-            top: 2px;
             font-size: medium;
-            position:absolute;
-            left:20px
+            position: static;
+            margin: 0;
         }
         #pathlabelTXT
         {
-            position:absolute;
-            top: 2px;
-            left: 170px;
+            position: static;
+            margin: 0;
         }
 
         #pathframe
         {
-            position:absolute;
-            width: calc(100vw - 600px);
-            height: 35px;
-            left:230px;
-            top: 10px;
-            /*padding: 2px 5px;*/
+            position: static;
+            width: 100%;
+            min-width: 0;
+            height: 36px;
+            box-sizing: border-box;
             padding-left: 7px;
             font-size: 16px;
             border: 2px solid #ddd;
@@ -128,6 +156,43 @@
         }
 
 
+        #serverLabel { white-space:nowrap; justify-self:end; margin-right:-6px; }
+        #serverPicker { position:relative; min-width:0; }
+        #serverAddress { width:100%; height:36px; box-sizing:border-box; padding:6px 34px 6px 10px;
+            border:2px solid #ddd; border-radius:8px; background:white; font-size:16px; }
+        #serverAddress:focus { outline:2px solid #3498db; outline-offset:1px; }
+        #serverHistoryToggle { position:absolute; right:1px; top:1px; width:32px; height:34px;
+            border:0; background:transparent; cursor:pointer; border-radius:6px; }
+        #serverConnect { height:36px; min-width:72px; padding:0 16px;
+            border:1px solid #b8cddd; border-radius:8px;
+            background:linear-gradient(#fff, #e8f2fa); color:inherit; cursor:pointer;
+            font-size:16px; font-family:inherit; box-shadow:0 1px 3px #20384d18;
+            transition:background .15s, border-color .15s, box-shadow .15s; }
+        #serverConnect:hover { background:#dfedf8; border-color:#7da9cb; box-shadow:0 2px 5px #20384d24; }
+        #serverConnect:active { background:#d3e5f3; box-shadow:inset 0 1px 3px #20384d20; }
+        #serverConnect:focus-visible { outline:2px solid #3498db; outline-offset:2px; }
+        #serverConnect[data-active="true"] { background:linear-gradient(#fff, #f8ece9); border-color:#d7b9b2; }
+        #serverConnect[data-active="true"]:hover { background:#f3e0db; border-color:#c7988b; }
+        #serverConnect[data-active="true"]:active { background:#ecd2ca; }
+        #serverHistory { position:absolute; right:0; top:42px; width:100%; min-width:240px;
+            max-height:280px; overflow-y:auto; padding:5px; box-sizing:border-box; margin:0;
+            background:white; border:1px solid #c8d4df; border-radius:8px;
+            box-shadow:0 8px 24px #0002; list-style:none; }
+        #serverHistory[hidden] { display:none; }
+        #serverHistory li { display:flex; align-items:center; gap:9px; padding:9px 7px;
+            border-radius:5px; cursor:pointer; overflow-wrap:anywhere; }
+        #serverHistory li[aria-selected="true"], #serverHistory li:hover { background:#eaf2fc; }
+        .server-signal { flex:0 0 9px; height:9px; border-radius:50%; background:#c83d3d; }
+        .server-signal.online { background:#23944d; }
+        #serverHistory .server-history-empty { color:#667; cursor:default; }
+        #serverStorageNotice { position:absolute; top:100%; right:16px; padding:5px 9px;
+            background:#fff3d6; color:#725000; font-size:12px; border-radius:4px; }
+        @media(max-width:800px) {
+            #upbar { height:104px; grid-template-columns:auto minmax(0,1fr) auto; gap:8px; padding:10px; }
+            #pathlabelTXT { display:none; }
+            #pathframe { grid-column:2 / 4; }
+            #serverLabel { grid-column:1; margin-right:-4px; }
+        }
     </style>
 
     
@@ -144,7 +209,16 @@
             根目录
         </p>
         <input type="text" id = 'pathframe' placeholder="当前没有后端连接" disabled>
-
+        <label id="serverLabel" for="serverAddress">服务器地址</label>
+        <div id="serverPicker">
+            <input id="serverAddress" type="text" placeholder="192.168.1.20:8768" autocomplete="off"
+                spellcheck="false" role="combobox" aria-expanded="false" aria-controls="serverHistory"
+                aria-autocomplete="list" aria-label="服务器地址">
+            <button id="serverHistoryToggle" type="button" aria-label="显示地址历史" tabindex="-1">▾</button>
+            <ul id="serverHistory" role="listbox" aria-label="服务器地址历史" hidden></ul>
+        </div>
+        <button id="serverConnect" type="button">连接</button>
+        <span id="serverStorageNotice" role="status" hidden>浏览器未允许保存地址，本次仅在内存中保留</span>
     </div>
     <div id = 'main'>
         <!-- 树状图模块将通过 treemap.js 动态加载 -->
@@ -217,80 +291,291 @@
     </script>
     <script>
         let socket = null;
+        const addressInput = document.getElementById('serverAddress');
+        const historyList = document.getElementById('serverHistory');
+        const connectButton = document.getElementById('serverConnect');
+        const SERVER_STORAGE_KEY = 'tiphereth.server-addresses.v1';
+        let serverHistory = [], lastServerAddress = '', historyIndex = -1;
+        const serverSignals = new Map();
+        const probeControllers = new Set();
+        let probeGeneration = 0, probeTimer = null;
 
-        //为Websocket添加自动重连逻辑
-        function createAutoReconnectWebSocket(url, onMessage) {
-            let ws = null;
-            let reconnectAttempts = 0;
-            const maxReconnectDelay = 30000;
-            let isConnected = false;//连接状态
-            
-            function connect() {
-                console.log(`连接 ${url}...`);
-                ws = new WebSocket(url);
-                ws.binaryType = 'arraybuffer';
-                
-                ws.onopen = () => {
-                    isConnected = true;
-                    console.log('连接成功');
-                    basicEvent.when_connect();
-                    reconnectAttempts = 0;
-                };
-                
-                ws.onmessage = onMessage;
-                
-                ws.onerror = (error) => {
-                    console.error('连接错误:', error);
-                    isConnected = false;
-                };
-                
-                ws.onclose = () => {
-                    console.log('连接断开');
-                    basicEvent.when_disconnect();
-                    isConnected = false;
-                    
-                    // 自动重连
-                    reconnect();
-                };
+        function normalizeServerAddress(value) {
+            const text = String(value).trim();
+            if (!text || /\s/.test(text)) throw new Error('请输入有效的服务器 IP 或主机名，可附带端口');
+            const explicitScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(text);
+            let url;
+            try { url = new URL(explicitScheme ? text : 'http://' + text); }
+            catch { throw new Error('地址格式无效，例如 192.168.1.20:8768'); }
+            if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)
+                || url.username || url.password || url.search || url.hash
+                || !['/', '/ws', ''].includes(url.pathname)) {
+                throw new Error('请输入服务器地址，不要包含账号、查询参数或资源路径');
             }
-            
-            function reconnect() {
-                reconnectAttempts++;
-                
-                // 指数退避
-                const delay = 1000;//Math.min(1000 * Math.pow(2, reconnectAttempts), maxReconnectDelay);
-                
-                console.log(`${delay/1000}秒后尝试重连 (第${reconnectAttempts}次)`);
-                
-                setTimeout(connect, delay);
-            }
-            
-            function send(data) {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(data);
-                    return true;
-                }
-                return false;
-            }
-            
-            connect();
-            
-            return {
-                send,
-                close: () => ws && ws.close(),
-                reconnect: connect,
-                isConnected: () => isConnected
-            };
+            const secure = ['https:', 'wss:'].includes(url.protocol);
+            if (location.protocol === 'https:' && !secure) throw new Error('HTTPS 页面需要连接 HTTPS/WSS 服务');
+            const authority = (explicitScheme ? text.split('://')[1] : text).split('/')[0];
+            const explicitPort = authority.match(/:(\d+)$/);
+            const port = explicitPort ? Number(explicitPort[1]) : Number(url.port || 8768);
+            if (port < 1 || port > 65535) throw new Error('端口必须在 1～65535 之间');
+            const host = url.hostname + ':' + port;
+            return {address: (secure ? 'https://' : '') + host,
+                httpUrl: (secure ? 'https://' : 'http://') + host,
+                wsUrl: (secure ? 'wss://' : 'ws://') + host + '/ws'};
         }
 
+        function saveServerHistory() {
+            try {
+                localStorage.setItem(SERVER_STORAGE_KEY, JSON.stringify({last: lastServerAddress, history: serverHistory}));
+            } catch {
+                document.getElementById('serverStorageNotice').hidden = false;
+            }
+        }
+        function rememberAddress(address) {
+            lastServerAddress = address;
+            serverHistory = [address, ...serverHistory.filter(item => item !== address)].slice(0, 20);
+            saveServerHistory();
+        }
+        function loadServerHistory() {
+            try {
+                const saved = JSON.parse(localStorage.getItem(SERVER_STORAGE_KEY) || '{}');
+                for (const value of (Array.isArray(saved.history) ? saved.history : []).slice(0, 20)) {
+                    try {
+                        const address = normalizeServerAddress(value).address;
+                        if (!serverHistory.includes(address)) serverHistory.push(address);
+                    } catch { /* 忽略已损坏的历史条目。 */ }
+                }
+                if (saved.last) lastServerAddress = normalizeServerAddress(saved.last).address;
+            } catch { /* 存储损坏或被禁用时仍可手动连接。 */ }
+        }
+        function renderServerHistory() {
+            historyList.replaceChildren();
+            addressInput.removeAttribute('aria-activedescendant');
+            if (!serverHistory.length) {
+                const item = document.createElement('li');
+                item.className = 'server-history-empty'; item.textContent = '暂无地址历史';
+                historyList.append(item); return;
+            }
+            serverHistory.forEach((address, index) => {
+                const item = document.createElement('li');
+                item.id = 'server-history-' + index; item.setAttribute('role', 'option');
+                item.setAttribute('aria-selected', String(index === historyIndex));
+                const online = serverSignals.get(address) === true;
+                const dot = document.createElement('span');
+                dot.className = 'server-signal' + (online ? ' online' : '');
+                dot.setAttribute('aria-hidden', 'true');
+                const label = document.createElement('span'); label.textContent = address;
+                item.append(dot, label);
+                item.title = online ? '服务可达' : '未检测到服务（可能离线或被浏览器阻止）';
+                item.setAttribute('aria-label', address + '，' + item.title);
+                item.addEventListener('mousedown', event => event.preventDefault());
+                item.addEventListener('click', () => selectServerHistory(index));
+                historyList.append(item);
+                if (index === historyIndex) addressInput.setAttribute('aria-activedescendant', item.id);
+            });
+        }
+        function selectServerHistory(index) {
+            addressInput.value = serverHistory[index];
+            addressInput.setCustomValidity('');
+            rememberAddress(addressInput.value);
+            closeServerHistory(); addressInput.focus(); closeServerHistory();
+        }
+        function closeServerHistory() {
+            historyList.hidden = true; historyIndex = -1;
+            addressInput.setAttribute('aria-expanded', 'false');
+            addressInput.removeAttribute('aria-activedescendant');
+            ++probeGeneration; clearTimeout(probeTimer);
+            for (const controller of probeControllers) controller.abort();
+            probeControllers.clear();
+        }
+        async function probeServerHistory() {
+            const generation = ++probeGeneration;
+            const addresses = [...serverHistory]; let next = 0;
+            async function worker() {
+                while (!historyList.hidden && generation === probeGeneration && next < addresses.length) {
+                    const address = addresses[next++];
+                    const controller = new AbortController(); probeControllers.add(controller);
+                    const timeout = setTimeout(() => controller.abort(), 2500);
+                    let online = false;
+                    try {
+                        const target = normalizeServerAddress(address);
+                        const response = await fetch(target.httpUrl + '/api/server-info', {
+                            signal: controller.signal, credentials: 'omit', cache: 'no-store', redirect: 'error'
+                        });
+                        if (response.ok) {
+                            const data = await response.json();
+                            online = data.protocol_version === 1 && data.websocket_path === '/ws';
+                        }
+                    } catch { /* 超时或浏览器网络策略拒绝均显示未检测到服务。 */ }
+                    finally { clearTimeout(timeout); probeControllers.delete(controller); }
+                    if (generation !== probeGeneration || historyList.hidden) return;
+                    if (socket && socket.isConnected() && normalizeServerAddress(socket.url).address === address) online = true;
+                    serverSignals.set(address, online); renderServerHistory();
+                }
+            }
+            await Promise.all(Array.from({length: Math.min(4, addresses.length)}, worker));
+            if (generation === probeGeneration && !historyList.hidden) probeTimer = setTimeout(probeServerHistory, 15000);
+        }
+        function openServerHistory() {
+            closeServerHistory(); historyList.hidden = false;
+            addressInput.setAttribute('aria-expanded', 'true');
+            renderServerHistory(); probeServerHistory();
+        }
+        function updateConnectionUI(state) {
+            const active = state !== 'disconnected';
+            connectButton.textContent = active ? '断开' : '连接';
+            connectButton.dataset.active = String(active);
+            const labels = {connecting:'🟨 正在连接', retrying:'🟨 等待重连', connected:'🟩 连接成功', disconnected:'🟥 未连接后端'};
+            statusElement.textContent = labels[state];
+            statusElement.style.color = state === 'connected' ? 'green' : 'red';
+            if (state !== 'connected') { nowpath.value = ''; nowpath.disabled = true; }
+            if (socket) {
+                serverSignals.set(normalizeServerAddress(socket.url).address, state === 'connected');
+                if (!historyList.hidden) renderServerHistory();
+            }
+        }
+        function initializeServerControls() {
+            loadServerHistory();
+            addressInput.value = lastServerAddress || 'localhost:8768';
+            connectButton.addEventListener('click', () => socket && socket.isActive() ? disconnect() : connect());
+            addressInput.addEventListener('focus', openServerHistory);
+            addressInput.addEventListener('input', () => { addressInput.setCustomValidity(''); historyIndex = -1; });
+            addressInput.addEventListener('change', () => {
+                try { rememberAddress(normalizeServerAddress(addressInput.value).address); } catch { /* 连接时提示错误。 */ }
+            });
+            document.getElementById('serverHistoryToggle').addEventListener('click', () => {
+                if (historyList.hidden) openServerHistory(); else closeServerHistory();
+            });
+            document.addEventListener('pointerdown', event => {
+                if (!document.getElementById('serverPicker').contains(event.target)) closeServerHistory();
+            });
+            addressInput.addEventListener('keydown', event => {
+                if (event.key === 'Escape') { closeServerHistory(); return; }
+                if (event.key === 'Tab') { closeServerHistory(); return; }
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    if (historyList.hidden) openServerHistory();
+                    if (serverHistory.length) {
+                        historyIndex = historyIndex < 0
+                            ? (event.key === 'ArrowDown' ? 0 : serverHistory.length - 1)
+                            : (historyIndex + (event.key === 'ArrowDown' ? 1 : -1) + serverHistory.length) % serverHistory.length;
+                        renderServerHistory();
+                        document.getElementById('server-history-' + historyIndex).scrollIntoView({block:'nearest'});
+                    }
+                } else if (event.key === 'Enter') {
+                    event.preventDefault();
+                    if (!historyList.hidden && historyIndex >= 0) selectServerHistory(historyIndex);
+                    else connect();
+                }
+            });
+            window.addEventListener('pagehide', () => { closeServerHistory(); disconnect(); });
+            // 布局模块的顶部预留空间随工具栏高度变化，不改动第三方布局代码。
+            new ResizeObserver(() => {
+                mainUI.style.paddingTop = document.getElementById('upbar').offsetHeight + 'px';
+            }).observe(document.getElementById('upbar'));
+            connect();
+        }
 
-        async function messageProc(event)
+        // 每个管理器拥有自己的定时器和连接代号；关闭后旧事件不能再影响界面。
+        function createAutoReconnectWebSocket(url, onMessage) {
+            let ws = null, timer = null, openingTimer = null;
+            let stopped = false, connected = false, attempt = 0, generation = 0;
+            let messages = Promise.resolve();
+            const active = () => !stopped && socket === api;
+            function clearTimers() {
+                clearTimeout(timer); clearTimeout(openingTimer);
+                timer = openingTimer = null;
+            }
+            function notifyDisconnect() {
+                if (connected) {
+                    connected = false;
+                    basicEvent.when_disconnect();
+                }
+            }
+            function open() {
+                if (!active()) return;
+                clearTimers();
+                const id = ++generation;
+                const current = () => active() && id === generation;
+                updateConnectionUI(attempt ? 'retrying' : 'connecting');
+                try {
+                    ws = new WebSocket(url);
+                } catch (error) {
+                    schedule();
+                    return;
+                }
+                const transport = ws;
+                transport.binaryType = 'arraybuffer';
+                openingTimer = setTimeout(() => {
+                    if (current() && transport.readyState === WebSocket.CONNECTING) transport.close();
+                }, 10000);
+                transport.onopen = () => {
+                    if (!current()) { transport.close(); return; }
+                    clearTimeout(openingTimer);
+                    connected = true; attempt = 0;
+                    basicEvent.when_connect();
+                    updateConnectionUI('connected');
+                };
+                transport.onmessage = event => {
+                    // 串行处理 Blob 等异步消息，切换连接后丢弃旧消息。
+                    messages = messages.then(() => current() && onMessage(event, current))
+                        .catch(error => console.error('消息处理失败:', error));
+                };
+                transport.onerror = () => {
+                    // 由 onclose 统一通知断线并安排重连，避免重复回调。
+                    if (current()) console.warn('后端连接失败:', url);
+                };
+                transport.onclose = () => {
+                    if (!current()) return;
+                    clearTimeout(openingTimer);
+                    notifyDisconnect();
+                    schedule();
+                };
+            }
+            function schedule() {
+                if (!active()) return;
+                const delay = Math.min(1000 * 2 ** Math.min(attempt++, 5), 30000);
+                updateConnectionUI('retrying');
+                clearTimeout(timer);
+                timer = setTimeout(open, delay);
+            }
+            const api = {
+                url,
+                send(data) {
+                    if (!active() || !ws || ws.readyState !== WebSocket.OPEN) return false;
+                    try { ws.send(data); return true; } catch { return false; }
+                },
+                close() {
+                    if (stopped) return;
+                    stopped = true; ++generation;
+                    clearTimers();
+                    notifyDisconnect();
+                    if (ws) ws.close();
+                    if (socket === api) updateConnectionUI('disconnected');
+                },
+                reconnect() {
+                    if (socket !== api) return;
+                    stopped = false; ++generation;
+                    clearTimers(); notifyDisconnect();
+                    if (ws) ws.close();
+                    attempt = 0; open();
+                },
+                isConnected: () => active() && connected,
+                isActive: () => active()
+            };
+            // 等调用方把 api 赋给全局 socket 后再连接。
+            queueMicrotask(open);
+            return api;
+        }
+
+        async function messageProc(event, isCurrent = () => true)
         {
             try {
                 if (event.data instanceof ArrayBuffer || event.data instanceof Blob) {
                     const buffer = event.data instanceof Blob
                         ? await event.data.arrayBuffer()
                         : event.data;
+                    if (!isCurrent()) return;
                     const view = new DataView(buffer);
                     if (view.byteLength < 8 || view.getUint32(0, false) !== 0x48535631) {
                         console.error('收到无法识别的二进制消息');
@@ -314,6 +599,7 @@
                     return;
                 }
 
+                if (!isCurrent()) return;
                 const data = JSON.parse(event.data);
                 if (String(data.command) == 'SET_NOWPATH')
                 {
@@ -337,17 +623,29 @@
 
 
         function connect() {
-            // WebSocket连接
-            socket = createAutoReconnectWebSocket('ws://localhost:8768', messageProc);
-        }
-        
-        function disconnect() {
-            if (socket) {
-                socket.close();
-                socket = null;
+            let target;
+            try {
+                target = normalizeServerAddress(addressInput.value);
+                addressInput.setCustomValidity('');
+            } catch (error) {
+                addressInput.setCustomValidity(error.message);
+                addressInput.reportValidity();
+                return;
             }
+            disconnect();
+            addressInput.value = target.address;
+            rememberAddress(target.address);
+            closeServerHistory();
+            socket = createAutoReconnectWebSocket(target.wsUrl, messageProc);
+            updateConnectionUI('connecting');
         }
-        
+
+        function disconnect() {
+            if (socket) socket.close();
+            socket = null;
+            updateConnectionUI('disconnected');
+        }
+
         // 页面加载时自动连接
         window.onload = function() {
             // 遍历执行 onload 函数列表
@@ -358,7 +656,7 @@
                     console.error('执行 onload 函数出错:', e);
                 }
             }
-            connect();//待所有 onload 函数(多数为初始化任务)执行完成后连接
+            initializeServerControls(); // 模块初始化完成后恢复地址并自动连接。
         };
 
         

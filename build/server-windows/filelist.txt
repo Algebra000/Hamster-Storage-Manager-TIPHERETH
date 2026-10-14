@@ -5,6 +5,7 @@ icon.ico
 install.bat
 install.py
 server.bat
+requirements.txt
 
 backend\back.py
 backend\classify_shower_back.py
