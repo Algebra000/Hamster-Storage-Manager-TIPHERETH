@@ -399,6 +399,10 @@ class CS_AnimeWidget {
     }
 
     sendCommand(command, data = {}) {
+        if (command === 'GET_CS_VIDEO_DATA') {
+            this.videoDataRequestId = `${this.widgetId}:metadata:${++this.videoPlaybackRequestSerial}`;
+            data = { ...data, requestId: this.videoDataRequestId };
+        }
         if (socket && socket.isConnected()) {
             socket.send(JSON.stringify({
                 command: command,
@@ -1639,6 +1643,11 @@ class CS_VideoPlayerWidget {
         //[DEBUG-START] 性能调试代码，release时删掉
         this.commentPerformanceRequest = null; // 仅保存最新请求的性能计时，避免累积。
         //[DEBUG-END]
+        //[DEBUG-START] 视频跳转耗时诊断，release时删掉
+        this.streamSeekPerformance = null;
+        this.streamSeekDebugSerial = 0;
+        this.streamSeekFrameCallback = null;
+        //[DEBUG-END]
         this.commentSourceInfoRequestId = ''; // 当前有效的评论来源信息修改请求编号。
         this.commentSourceInfoPending = null; // 来源名称保存失败时用于回滚的待确认修改。
         this.commentRequestSerial = 0; // 生成评论请求编号的递增序号。
@@ -1653,6 +1662,11 @@ class CS_VideoPlayerWidget {
             wordDirection: 'above'
         };
         this.player = null; // NPlayer 播放器实例。
+        this.forceBufferedPlayback = false;
+        this.timestampNotice = null;
+        this.videoPlaybackRequestSerial = 0;
+        this.videoDataRequestId = null;
+        this.streamRequestId = null;
         this.danmakuData = null; // 当前剧集加载到的弹幕数据。
         this.widgetId = `cs_video_player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`; // 当前播放器组件的唯一消息路由标识。
         this.messageHandler = null; // 处理后端 WebSocket 文本消息的函数。
@@ -1668,6 +1682,10 @@ class CS_VideoPlayerWidget {
         this.streamStartTime = 0; // 当前视频流在整部视频时间轴上的起始秒数。
         this.streamDuration = 0; // 当前视频文件的总时长（秒）。
         this.streamSeekTimer = null; // 对进度条拖动请求进行防抖的定时器。
+        this.streamSeekPending = false; // 防抖期间暂停向旧流追加缓冲请求。
+        this.streamIsSeek = false;
+        this.streamPlaybackMode = 'remux';
+        this.streamRepairSeekPrebufferSeconds = 1;
         this.streamSeekingHandler = null; // video 元素 seeking 事件的处理函数。
         this.streamPlayHandler = null; // video 元素 play 事件的处理函数。
         this.streamTimeUpdateHandler = null; // video 元素 timeupdate 事件的处理函数。
@@ -1695,6 +1713,27 @@ class CS_VideoPlayerWidget {
         // 添加消息处理函数
         this.messageHandler = (data) => {
             if (data.command === 'CS_VIDEO_DATA' && data.widgetId === this.widgetId) {
+                if (data.requestId !== this.videoDataRequestId
+                    || data.videoPath !== this.currentEpisode?.path) return;
+                this.forceBufferedPlayback = data['force-buffered-playback'] === true;
+                this.playbackSource = this.currentEpisode.path;
+                this.h265PlaybackBlocked = false;
+                if (data['video-stream'] === 'H265' && !this.supportsH265()) {
+                    const compatFile = typeof data.compat_file === 'string' ? data.compat_file : '';
+                    if (compatFile) {
+                        this.playbackSource = compatFile;
+                        this.forceBufferedPlayback = false;
+                    } else {
+                        this.h265PlaybackBlocked = true;
+                    }
+                }
+                this.timestampNotice?.close();
+                this.timestampNotice = null;
+                if (this.forceBufferedPlayback && !this.h265PlaybackBlocked && typeof window.frame_show_notice === 'function') {
+                    this.timestampNotice = window.frame_show_notice(
+                        '该 MP4 的显示时间戳异常，将修复时间轴并采用缓冲播放。',
+                        6000, '#FFE69A', true, '#5C4300');
+                }
                 const hasDanmaku = data['has-danmaku'];
                 if (hasDanmaku) {
                     this.danmakuData = data['danmaku-data'] || null;
@@ -1727,9 +1766,11 @@ class CS_VideoPlayerWidget {
             } else if (data.command === 'CS_COMMENT_ERROR' && data.widgetId === this.widgetId) {
                 this.handleCommentError(data);
             } else if (data.command === 'VIDEO_STREAM_READY' && data.widgetId === this.widgetId) {
-                this.handleVideoStreamReady(data);
+                if (data.requestId === this.streamRequestId
+                    && data.videoPath === this.currentEpisode?.path) this.handleVideoStreamReady(data);
             } else if (data.command === 'VIDEO_STREAM_UNSUPPORTED' && data.widgetId === this.widgetId) {
-                if (!data.videoPath || data.videoPath === this.currentEpisode.path) {
+                if (data.requestId === this.streamRequestId
+                    && data.videoPath === this.currentEpisode?.path) {
                     this.handleUnsupportedVideoStream(data);
                 }
             } else if (data.command === 'VIDEO_STREAM_ENDED' && data.widgetId === this.widgetId) {
@@ -1738,7 +1779,9 @@ class CS_VideoPlayerWidget {
                     this.finishMediaStreamIfPossible();
                 }
             } else if (data.command === 'VIDEO_STREAM_ERROR' && data.widgetId === this.widgetId) {
-                if (!this.activeStreamId || data.streamId === this.activeStreamId) {
+                if (data.streamId === this.activeStreamId
+                    || (!this.activeStreamId && data.requestId === this.streamRequestId
+                        && data.videoPath === this.currentEpisode?.path)) {
                     this.failRemuxStream(data.error || '视频流处理失败');
                 }
             }
@@ -1749,11 +1792,27 @@ class CS_VideoPlayerWidget {
                 && header.widgetId === this.widgetId
                 && header.streamId === this.activeStreamId
                 && !this.streamFailed) {
+                //[DEBUG-START] 视频跳转耗时诊断，release时删掉
+                const seekPerf = this.streamSeekPerformance;
+                if (seekPerf && seekPerf.streamId === header.streamId
+                    && header.segmentType === 'media' && !seekPerf.firstMedia) {
+                    seekPerf.firstMedia = true;
+                    this.recordStreamSeekPerformance('首个媒体段接收完成', {
+                        bytes: payload.byteLength, streamId: header.streamId
+                    });
+                }
+                //[DEBUG-END]
                 this.streamQueue.push({
+                    //[DEBUG-START]
+                    receivedAt: performance.now(),
+                    //[DEBUG-END]
                     payload: payload,
                     sequence: header.sequence,
                     segmentType: header.segmentType || 'unknown'
                 });
+                //[DEBUG-START]
+                this.recordStreamChunkPerformance('分段接收', this.streamQueue[this.streamQueue.length - 1]);
+                //[DEBUG-END]
                 this.appendNextStreamChunk();
             }
         };
@@ -3498,8 +3557,9 @@ class CS_VideoPlayerWidget {
     initPlayer(playerId) {
         if (!this.currentEpisode) return;
 
-        const nativePlayback = this.isNativeVideo(this.currentEpisode.path);
-        const videoPath = nativePlayback ? this.getVideoUrl(this.currentEpisode.path) : '';
+        const source = this.playbackSource || this.currentEpisode.path;
+        const nativePlayback = !this.forceBufferedPlayback && this.isNativeVideo(source);
+        const videoPath = nativePlayback ? this.getVideoUrl(source) : '';
         const hasDanmu = this.currentEpisode.hasDanmu;
 
         // 如果有弹幕，加载弹幕脚本
@@ -3530,7 +3590,7 @@ class CS_VideoPlayerWidget {
                 }]
             ]
         };
-        if (nativePlayback) {
+        if (nativePlayback && !this.h265PlaybackBlocked) {
             playerOptions.src = videoPath;
         }
 
@@ -3543,7 +3603,18 @@ class CS_VideoPlayerWidget {
         this.player = new NPlayer.Player(playerOptions);
         this.player.mount();
 
-        if (!nativePlayback) {
+        if (this.h265PlaybackBlocked) {
+            const video = this.player.video;
+            if (video) video.style.background = '#000';
+            container.style.background = '#000';
+            const message = '本设备不支持H265且无可用的兼容视频来源，因此无法播放该视频';
+            if (typeof window.frame_show_notice === 'function') {
+                window.frame_show_notice(message, 6000, '#D32F2F', true, '#FFFFFF');
+            } else {
+                this.showStreamErrorOverlay(message);
+                this.streamErrorNotice.style.background = '#D32F2F';
+            }
+        } else if (!nativePlayback) {
             this.setupRemuxStream(this.autoSeekTime || 0);
         }
 
@@ -3582,6 +3653,9 @@ class CS_VideoPlayerWidget {
         this.disposeRemuxStream();
         this.danmakuData = null;
         this.autoSeekTime = 0;
+        this.forceBufferedPlayback = false;
+        this.playbackSource = null;
+        this.h265PlaybackBlocked = false;
         if (this.player && this.player.dispose) {
             this.player.dispose();
         }
@@ -3592,6 +3666,17 @@ class CS_VideoPlayerWidget {
         this.sendCommand('GET_CS_VIDEO_DATA', {
             rootPath: this.rootPath,
             videoPath: episode.path
+        });
+    }
+
+    supportsH265() {
+        const video = document.createElement('video');
+        return ['hvc1.1.6.L93.B0', 'hev1.1.6.L93.B0', 'hvc1', 'hev1'].some(codec => {
+            try {
+                return ['probably', 'maybe'].includes(video.canPlayType(`video/mp4; codecs="${codec}"`));
+            } catch (error) {
+                return false;
+            }
         });
     }
 
@@ -3608,10 +3693,49 @@ class CS_VideoPlayerWidget {
         const video = this.player && this.player.video;
         if (!video) return;
 
+        // NPlayer 的控件忽略 play() 的 Promise；准备期间先保存播放意图。
+        const player = this.player;
+        const originalPlay = player.play;
+        this.streamOriginalPlayerPlay = originalPlay;
+        player.play = () => {
+            if (this.player !== player || !player.el) return Promise.resolve();
+            if (this.streamFailed) return Promise.resolve();
+            if (this.restartingStream) {
+                this.resumeAfterStreamOpen = true;
+                return Promise.resolve();
+            }
+            return originalPlay.call(player).catch(error => {
+                if (error.name !== 'AbortError') console.warn('播放失败:', error);
+            });
+        };
+
         this.streamSeekingHandler = () => {
-            if (this.restartingStream || this.streamFailed
-                || this.isTimeBuffered(video.currentTime)) return;
+            if (this.restartingStream || this.streamFailed) return;
+            //[DEBUG-START]
+            const wasSeekPending = this.streamSeekPending;
+            //[DEBUG-END]
+            clearTimeout(this.streamSeekTimer);
+            this.streamSeekTimer = null;
+            this.streamSeekPending = false;
+            if (this.isTimeBuffered(video.currentTime)) {
+                //[DEBUG-START]
+                if (wasSeekPending) {
+                    this.clearStreamSeekFrameCallback();
+                    this.streamSeekPerformance = null;
+                }
+                //[DEBUG-END]
+                return;
+            }
+            this.streamSeekPending = true;
             const seekTime = Math.max(0, Number(video.currentTime) || 0);
+            //[DEBUG-START] 视频跳转耗时诊断，release时删掉
+            const debugStarted = performance.now();
+            this.streamSeekPerformance = {
+                requestId: `${this.widgetId}:${Date.now()}:${++this.streamSeekDebugSerial}`,
+                started: debugStarted, previous: debugStarted, firstMedia: false
+            };
+            this.recordStreamSeekPerformance('未缓冲位置跳转开始', { requestedTime: seekTime });
+            //[DEBUG-END]
             clearTimeout(this.streamSeekTimer);
             this.streamSeekTimer = setTimeout(() => {
                 this.openRemuxMediaSource(seekTime, 'SEEK_VIDEO_STREAM');
@@ -3645,9 +3769,19 @@ class CS_VideoPlayerWidget {
     openRemuxMediaSource(startTime, command) {
         const video = this.player && this.player.video;
         if (!video || !this.currentEpisode) return;
+        //[DEBUG-START] 视频跳转耗时诊断，release时删掉
+        this.clearStreamSeekFrameCallback();
+        if (command !== 'SEEK_VIDEO_STREAM') this.streamSeekPerformance = null;
+        this.recordStreamSeekPerformance('防抖结束，开始重建 MediaSource');
+        //[DEBUG-END]
 
         this.clearUnsupportedVideoNotice();
         this.resumeAfterStreamOpen = !video.paused;
+        clearTimeout(this.streamSeekTimer);
+        this.streamSeekTimer = null;
+        this.streamSeekPending = false;
+        this.streamIsSeek = command === 'SEEK_VIDEO_STREAM';
+        this.streamPlaybackMode = 'remux';
         this.restartingStream = true;
         this.streamStartTime = Math.max(0, Number(startTime) || 0);
         this.activeStreamId = null;
@@ -3663,13 +3797,41 @@ class CS_VideoPlayerWidget {
         this.mediaSource = new MediaSource();
         this.streamObjectUrl = URL.createObjectURL(this.mediaSource);
         video.src = this.streamObjectUrl;
+        const source = this.mediaSource;
+        const episodePath = this.currentEpisode.path;
+        const requestId = `${this.widgetId}:stream:${++this.videoPlaybackRequestSerial}`;
+        this.streamRequestId = requestId;
         this.mediaSource.addEventListener('sourceopen', () => {
+            if (this.mediaSource !== source || this.currentEpisode?.path !== episodePath) return;
+            //[DEBUG-START] 视频跳转耗时诊断，release时删掉
+            this.recordStreamSeekPerformance('MediaSource 打开，发送跳转请求');
+            //[DEBUG-END]
             this.sendCommand(command, {
                 rootPath: this.rootPath,
                 videoPath: this.currentEpisode.path,
-                startTime: this.streamStartTime
+                startTime: this.streamStartTime,
+                requestId,
+                //[DEBUG-START] 视频跳转耗时诊断，release时删掉
+                debugSeekId: this.streamSeekPerformance?.requestId
+                //[DEBUG-END]
             });
         }, { once: true });
+    }
+
+    showStreamErrorOverlay(message) {
+        if (!this.streamErrorNotice) {
+            const notice = document.createElement('div');
+            notice.setAttribute('role', 'status');
+            notice.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:28px;box-sizing:border-box;text-align:center;white-space:pre-line;color:#fff;background:rgba(0,0,0,.65);pointer-events:none;z-index:5;';
+            this.playerContainer.appendChild(notice);
+            this.streamErrorNotice = notice;
+        }
+        this.streamErrorNotice.textContent = message;
+    }
+
+    clearStreamErrorOverlay() {
+        this.streamErrorNotice?.remove();
+        this.streamErrorNotice = null;
     }
 
     handleVideoStreamReady(data) {
@@ -3680,6 +3842,14 @@ class CS_VideoPlayerWidget {
         }
 
         this.activeStreamId = data.streamId;
+        this.streamPlaybackMode = data.playbackMode || 'remux';
+        this.clearStreamErrorOverlay();
+        //[DEBUG-START] 视频跳转耗时诊断，release时删掉
+        if (this.streamSeekPerformance) {
+            this.streamSeekPerformance.streamId = data.streamId;
+        }
+        this.recordStreamSeekPerformance('收到 VIDEO_STREAM_READY', { streamId: data.streamId });
+        //[DEBUG-END]
         this.streamStartTime = Number(data.startTime) || 0;
         this.streamDuration = Number(data.duration) || 0;
         const serverHighWater = Number(data.bufferHighWaterSeconds) || 0;
@@ -3710,7 +3880,18 @@ class CS_VideoPlayerWidget {
             this.sourceBuffer = this.mediaSource.addSourceBuffer(data.mimeType);
             this.sourceBuffer.mode = 'segments';
             this.sourceBuffer.timestampOffset = this.streamStartTime;
+            const sourceBuffer = this.sourceBuffer;
             this.sourceBuffer.addEventListener('updateend', () => {
+                if (this.sourceBuffer !== sourceBuffer) return;
+                //[DEBUG-START]
+                if (this.currentStreamSegment) {
+                    this.recordStreamChunkPerformance('分段追加完成', this.currentStreamSegment, {
+                        appendMs: performance.now() - this.currentStreamSegment.appendedAt,
+                        bufferedAhead: this.getBufferedAhead(this.streamStartTime)
+                    });
+                }
+                //[DEBUG-END]
+                this.currentStreamSegment = null;
                 this.setInitialStreamPositionIfReady();
                 if (this.trimOldStreamBuffer()) {
                     this.requestMoreStreamData();
@@ -3737,6 +3918,9 @@ class CS_VideoPlayerWidget {
     }
 
     handleUnsupportedVideoStream(data) {
+        clearTimeout(this.streamSeekTimer);
+        this.streamSeekTimer = null;
+        this.streamSeekPending = false;
         const message = data.message || '不支持该视频的视频编码格式';
         this.streamFailed = true;
         this.streamQueue = [];
@@ -3786,6 +3970,12 @@ class CS_VideoPlayerWidget {
         if (!this.sourceBuffer || this.sourceBuffer.updating || this.streamQueue.length === 0) return;
         try {
             this.currentStreamSegment = this.streamQueue.shift();
+            //[DEBUG-START]
+            this.currentStreamSegment.appendedAt = performance.now();
+            this.recordStreamChunkPerformance('开始追加分段', this.currentStreamSegment, {
+                queueWaitMs: this.currentStreamSegment.appendedAt - this.currentStreamSegment.receivedAt
+            });
+            //[DEBUG-END]
             this.sourceBuffer.appendBuffer(this.currentStreamSegment.payload);
         } catch (error) {
             this.failRemuxStream(`写入视频缓冲区失败：${error.message}`);
@@ -3810,6 +4000,24 @@ class CS_VideoPlayerWidget {
         video.currentTime = this.streamStartTime;
         this.restartingStream = false;
         this.streamPrebufferNoticeShown = false;
+        //[DEBUG-START] 视频跳转耗时诊断，release时删掉
+        this.recordStreamSeekPerformance('预缓冲完成，播放位置已设置', {
+            actualTime: this.streamStartTime, bufferedAhead: bufferedAhead
+        });
+        // 分别使用浏览器与后端的单调时钟计时，不相减两个机器的时间戳。
+        const seekPerf = this.streamSeekPerformance;
+        if (seekPerf && typeof video.requestVideoFrameCallback === 'function') {
+            const callbackId = video.requestVideoFrameCallback(() => {
+                if (this.streamSeekPerformance !== seekPerf) return;
+                this.streamSeekFrameCallback = null;
+                this.recordStreamSeekPerformance('跳转后首帧提交显示');
+                this.streamSeekPerformance = null;
+            });
+            this.streamSeekFrameCallback = { video: video, id: callbackId };
+        } else {
+            this.streamSeekPerformance = null;
+        }
+        //[DEBUG-END]
         console.log('[视频流] 预缓冲完成', {
             bufferedAhead: bufferedAhead,
             target: prebufferTarget,
@@ -3820,10 +4028,43 @@ class CS_VideoPlayerWidget {
         }
     }
 
+    //[DEBUG-START] 视频跳转耗时诊断，release时删掉
+    recordStreamChunkPerformance(label, segment, details = {}) {
+        const trace = this.streamSeekPerformance;
+        if (!trace || trace.streamId !== this.activeStreamId || !this.restartingStream || !segment) return;
+        console.log(`[视频分段耗时][${trace.requestId}] ${label}`, {
+            streamId: this.activeStreamId, sequence: segment.sequence,
+            segmentType: segment.segmentType, bytes: segment.payload.byteLength,
+            queueLength: this.streamQueue.length,
+            elapsedMs: performance.now() - trace.started, ...details
+        });
+    }
+
+    clearStreamSeekFrameCallback() {
+        const callback = this.streamSeekFrameCallback;
+        if (callback && typeof callback.video.cancelVideoFrameCallback === 'function') {
+            callback.video.cancelVideoFrameCallback(callback.id);
+        }
+        this.streamSeekFrameCallback = null;
+    }
+
+    recordStreamSeekPerformance(label, details = {}) {
+        const trace = this.streamSeekPerformance;
+        if (!trace) return;
+        const now = performance.now();
+        console.log(`[视频跳转耗时][${trace.requestId}] ${label}: `
+            + `${(now - trace.previous).toFixed(2)} ms `
+            + `(前端累计 ${(now - trace.started).toFixed(2)} ms)`, details);
+        trace.previous = now;
+    }
+    //[DEBUG-END]
+
     getStreamPrebufferTarget() {
-        if (this.streamDuration <= 0) return this.streamPrebufferSeconds;
+        const target = this.streamIsSeek && this.streamPlaybackMode === 'timestamp-repair'
+            ? this.streamRepairSeekPrebufferSeconds : this.streamPrebufferSeconds;
+        if (this.streamDuration <= 0) return target;
         const remaining = Math.max(0.1, this.streamDuration - this.streamStartTime);
-        return Math.min(this.streamPrebufferSeconds, remaining);
+        return Math.min(target, remaining);
     }
 
     getBufferedAhead(time) {
@@ -3843,6 +4084,7 @@ class CS_VideoPlayerWidget {
     }
 
     requestMoreStreamData(force = false) {
+        if (this.streamSeekPending) return;
         const video = this.player && this.player.video;
         if (!video || !this.activeStreamId || this.streamEnded || this.streamFailed) return;
         const playbackTime = this.restartingStream
@@ -3923,8 +4165,26 @@ class CS_VideoPlayerWidget {
     }
 
     disposeRemuxStream() {
+        this.clearStreamErrorOverlay();
+        if (this.player && this.streamOriginalPlayerPlay) {
+            this.player.play = this.streamOriginalPlayerPlay;
+        }
+        this.streamOriginalPlayerPlay = null;
+        this.streamRequestId = null;
+        this.videoDataRequestId = null;
+        this.timestampNotice?.close();
+        this.timestampNotice = null;
+        //[DEBUG-START] 视频跳转耗时诊断，release时删掉
+        this.clearStreamSeekFrameCallback();
+        this.recordStreamSeekPerformance('跳转计时结束：页面退出或切换剧集');
+        this.streamSeekPerformance = null;
+        //[DEBUG-END]
         clearTimeout(this.streamSeekTimer);
         const video = this.player && this.player.video;
+        this.streamSeekTimer = null;
+        this.streamSeekPending = false;
+        this.streamIsSeek = false;
+        this.streamPlaybackMode = 'remux';
         if (video && this.streamSeekingHandler) {
             video.removeEventListener('seeking', this.streamSeekingHandler);
         }
@@ -3955,6 +4215,14 @@ class CS_VideoPlayerWidget {
 
     failRemuxStream(message) {
         if (this.streamFailed) return;
+        clearTimeout(this.streamSeekTimer);
+        this.streamSeekTimer = null;
+        this.streamSeekPending = false;
+        //[DEBUG-START] 视频跳转耗时诊断，release时删掉
+        this.clearStreamSeekFrameCallback();
+        this.recordStreamSeekPerformance('跳转失败', { error: message });
+        this.streamSeekPerformance = null;
+        //[DEBUG-END]
         this.streamFailed = true;
         this.streamQueue = [];
         this.sendCommand('CANCEL_VIDEO_STREAM');
@@ -3965,6 +4233,7 @@ class CS_VideoPlayerWidget {
     showStreamError(message) {
         console.error('[视频流]', message);
         this.restartingStream = false;
+        this.showStreamErrorOverlay(`视频准备或播放失败：${message}`);
         if (this.player && this.player.toast) {
             this.player.toast.show(message, 'center', 6);
         }
@@ -4025,9 +4294,24 @@ class CS_VideoPlayerWidget {
     }
 
     getVideoUrl(path) {
-        // 构建视频文件的URL
-        // 假设rootPath是服务器上的路径
-        return `${this.rootPath}/${encodeURIComponent(path)}`;
+        // 按路径段编码，保留兼容文件和子目录中的目录分隔符。
+        const encodePath = value => value.split('/').map(encodeURIComponent).join('/');
+        const root = String(this.rootPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
+        const relativePath = String(path || '').replace(/\\/g, '/').replace(/^\/+/, '');
+        let base;
+        if (root.startsWith('//')) {
+            // Windows UNC 路径：\\server\share -> file://server/share。
+            base = `file:${encodePath(root)}`;
+        } else if (/^[A-Za-z]:\//.test(root)) {
+            base = `file:///${root.slice(0, 2)}${encodePath(root.slice(2))}`;
+        } else if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(root)) {
+            base = root;
+        } else if (root.startsWith('/')) {
+            base = `file://${encodePath(root)}`;
+        } else {
+            base = encodePath(root);
+        }
+        return `${base}/${encodePath(relativePath)}`;
     }
 
     saveCurrentTime() {
