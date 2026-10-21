@@ -130,7 +130,7 @@
             position: static;
             width: 100%;
             min-width: 0;
-            height: 36px;
+            height: 42px;
             box-sizing: border-box;
             padding-left: 7px;
             font-size: 16px;
@@ -429,8 +429,10 @@
             statusElement.textContent = labels[state];
             statusElement.style.color = state === 'connected' ? 'green' : 'red';
             if (state !== 'connected') { nowpath.value = ''; nowpath.disabled = true; }
-            if (socket) {
-                serverSignals.set(normalizeServerAddress(socket.url).address, state === 'connected');
+            // 连接成功可以证明服务可达；主动断开或重连不能证明服务离线。
+            // 红点仅由 HTTP 探测失败决定，展开历史列表时会重新探测。
+            if (socket && state === 'connected') {
+                serverSignals.set(normalizeServerAddress(socket.url).address, true);
                 if (!historyList.hidden) renderServerHistory();
             }
         }
