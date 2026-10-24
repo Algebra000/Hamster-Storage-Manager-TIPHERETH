@@ -2,5 +2,9 @@
   "base-port": 8768,
   "base_dir": [
     "D:/Media"
-  ]
+  ],
+  "http-url-config": {
+    "max-blob-bytes": 104857600,
+    "tmp-blob-file": false
+  }
 }

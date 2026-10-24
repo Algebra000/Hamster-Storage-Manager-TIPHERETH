@@ -4,10 +4,12 @@ import asyncio
 import importlib
 import json
 import logging
+import mimetypes
 import os
 from pathlib import Path
 import sys
 import tempfile
+import uuid
 from urllib.parse import quote
 
 from aiohttp import web, WSMsgType, WSCloseCode
@@ -24,6 +26,7 @@ CONNECTIONS_KEY = web.AppKey('connections', set)
 HANDLERS_KEY = web.AppKey('handlers', set)
 STOPPING_KEY = web.AppKey('stopping', asyncio.Event)
 RESOURCES_KEY = web.AppKey('resources', object)
+BLOBS_KEY = web.AppKey('blobs', object)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -91,7 +94,7 @@ class ResourceRegistry:
 async def resource_cors(request, handler):
     """仅通用只读 HTTP 路由接受跨源预检；WebSocket 不使用 CORS。"""
     if request.method == 'OPTIONS' and (
-        request.path == '/api/server-info' or request.path.startswith('/resources/')
+        request.path == '/api/server-info' or request.path.startswith(('/resources/', '/blobs/'))
     ):
         method = request.headers.get('Access-Control-Request-Method', 'GET').upper()
         requested_headers = {v.strip().lower() for v in request.headers.get(
@@ -107,7 +110,7 @@ async def resource_cors(request, handler):
 async def prepare_resource_headers(request, response):
     # FileResponse 在 prepare 时才确定 206/304/416 等结果，使用 aiohttp 的
     # on_response_prepare 钩子，保证这些响应与 404/403 一样带跨源响应头。
-    if request.path == '/api/server-info' or request.path.startswith('/resources/'):
+    if request.path == '/api/server-info' or request.path.startswith(('/resources/', '/blobs/')):
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = (
@@ -151,13 +154,97 @@ async def resource_handler(request):
     return web.FileResponse(target, headers=headers)
 
 
+class BlobStore:
+    """全应用共享的 blob 登记表，按创建顺序将内存数据转存到文件。"""
+
+    def __init__(self, max_bytes, spill, directory):
+        self.entries = {}
+        self.memory_bytes = 0
+        self.max_bytes = max_bytes
+        self.spill = spill
+        self.directory = Path(directory)
+
+    def __len__(self):
+        return len(self.entries)
+
+    def get(self, token):
+        return self.entries.get(token)
+
+    def _write_file(self, data):
+        self.directory.mkdir(parents=True, exist_ok=True)
+        path = None
+        try:
+            with tempfile.NamedTemporaryFile(prefix='http-blob-', suffix='.bin',
+                                             dir=str(self.directory), delete=False) as target:
+                path = Path(target.name)
+                target.write(data)
+            return path
+        except BaseException:
+            if path is not None:
+                path.unlink()
+            raise
+
+    def add(self, token, data, content_type, name):
+        size = len(data)
+        if self.memory_bytes + size > self.max_bytes and not self.spill:
+            raise MemoryError('blob 数据总大小超过 max-blob-bytes')
+        # 单个数据超限无法驻留内存，直接存为文件，避免无意义地转存所有旧数据。
+        if size > self.max_bytes:
+            path = self._write_file(data)
+            self.entries[token] = (None, content_type, name, path)
+            return
+        for old_token, entry in self.entries.items():
+            if self.memory_bytes + size <= self.max_bytes:
+                break
+            old_data, old_type, old_name, old_path = entry
+            if old_data is not None:
+                path = self._write_file(old_data)
+                # 写入成功后才释放登记表中的 bytes，失败时原数据仍可读取。
+                self.entries[old_token] = (None, old_type, old_name, path)
+                self.memory_bytes -= len(old_data)
+        self.entries[token] = (data, content_type, name, None)
+        self.memory_bytes += size
+
+    def pop(self, token, default=None):
+        entry = self.entries.get(token)
+        if entry is None:
+            return default
+        data, _, _, path = entry
+        if path is not None:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+        del self.entries[token]
+        if data is not None:
+            self.memory_bytes -= len(data)
+        return entry
+
+
+async def blob_handler(request):
+    """读取模块登记的内存数据；HEAD 由 aiohttp 自动省略响应正文。"""
+    entry = request.app[BLOBS_KEY].get(request.match_info['token'])
+    if entry is None:
+        raise web.HTTPNotFound()
+    data, content_type, data_name, path = entry
+    if request.match_info['data_name'] != data_name:
+        raise web.HTTPNotFound()
+    if path is not None:
+        return web.FileResponse(path, headers={'Content-Type': content_type,
+                                              'Cache-Control': 'no-store'})
+    return web.Response(body=data, content_type=content_type,
+                        headers={'Cache-Control': 'no-store'})
+
+
 class FrameworkConnection:
     """功能模块使用的连接适配层，不包含任何模块业务状态。"""
 
-    def __init__(self, websocket, *, send_timeout=30, resources=None, resource_origin=None):
+    def __init__(self, websocket, *, send_timeout=30, resources=None, resource_origin=None, blobs=None):
         self.websocket = websocket
         self.resources = resources
         self.resource_origin = resource_origin
+        self._blobs = blobs
+        self._blob_tokens = {}
         self.incoming = asyncio.Queue(maxsize=32)
         self.send_timeout = send_timeout
         self._send_lock = asyncio.Lock()
@@ -192,19 +279,60 @@ class FrameworkConnection:
         return await self.incoming.get()
 
     async def close(self, code=WSCloseCode.OK, reason=''):
+        self._clear_blob_urls()
         await self.websocket.close(code=code, message=reason.encode('utf-8'))
 
     def resource_url(self, file_path):
-        """生成允许资源文件的绝对 HTTP(S) URL，使用本连接访问后端的地址。"""
+        """对根目录下的文件生成允许资源文件的绝对 HTTP(S) URL，使用本URL访问该文件。"""
         if self.resources is None:
             raise RuntimeError('资源登记表不可用')
         if self.resource_origin is None:
             raise RuntimeError('连接的资源服务地址不可用')
         return self.resource_origin + self.resources.url_for(file_path)
 
+    def blob_url(self, data_name, data: bytes):
+        """登记 bytes 并返回独立的绝对 HTTP(S) URL；名称仅用于推断 MIME。
+
+        每次调用创建新资源，即使名称或内容相同。同步方法，在框架事件循环中调用。
+        """
+        if not isinstance(data_name, str) or not data_name:
+            raise ValueError('data_name must be a non-empty string')
+        if data_name in ('.', '..') or any(c in data_name for c in '/\\') or any(ord(c) < 32 or ord(c) == 127 for c in data_name):
+            raise ValueError('data_name must be a filename without separators or control characters')
+        if not isinstance(data, bytes):
+            raise TypeError('data must be bytes')
+        if self.closed:
+            raise ConnectionError('WebSocket is closed')
+        if self._blobs is None or self.resource_origin is None:
+            raise RuntimeError('连接的二进制资源服务不可用')
+        token = uuid.uuid4().hex
+        url = self.resource_origin + '/blobs/' + token + '/' + quote(data_name, safe='')
+        content_type = mimetypes.guess_type(data_name)[0] or 'application/octet-stream'
+        self._blobs.add(token, data, content_type, data_name)
+        self._blob_tokens[url] = token
+        return url
+
+    def delete_blob_url(self, blob_url: str):
+        """按创建时返回的完整 URL 删除本连接资源，返回是否存在；不删除其他连接资源。"""
+        if not isinstance(blob_url, str):
+            raise TypeError('blob_url must be a string')
+        token = self._blob_tokens.get(blob_url)
+        if token is None:
+            return False
+        self._blobs.pop(token, None)
+        del self._blob_tokens[blob_url]
+        return True
+
+    def _clear_blob_urls(self):
+        """清理该连接持有的全部数据，不影响其他连接。"""
+        if self._blobs is not None:
+            for token in self._blob_tokens.values():
+                self._blobs.pop(token, None)
+        self._blob_tokens.clear()
+
 
 def load_global_config(path):
-    """只在缺少端口时原子补写配置，不回写运行时解析后的资源路径。"""
+    """缺少端口或 HTTP URL 配置时原子补写默认值，不回写运行时资源路径。"""
     path = Path(path)
     try:
         with path.open(encoding='utf-8') as source:
@@ -219,8 +347,21 @@ def load_global_config(path):
     roots = config.get('base_dir', [])
     if not isinstance(roots, list) or any(not isinstance(p, str) for p in roots):
         raise ValueError('base_dir 必须是路径字符串列表')
-    if 'base-port' not in config:
-        config['base-port'] = port
+    http_config = config.get('http-url-config', {})
+    if not isinstance(http_config, dict):
+        raise ValueError('http-url-config 必须是 JSON 对象')
+    max_bytes = http_config.get('max-blob-bytes', 104857600)
+    if type(max_bytes) is not int or max_bytes < 0:
+        raise ValueError('max-blob-bytes 必须是非负整数')
+    if type(http_config.get('tmp-blob-file', False)) is not bool:
+        raise ValueError('tmp-blob-file 必须是布尔值')
+    needs_write = 'base-port' not in config or 'http-url-config' not in config
+    config.setdefault('base-port', port)
+    config.setdefault('http-url-config', {
+        'max-blob-bytes': 104857600,
+        'tmp-blob-file': False,
+    })
+    if needs_write:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = None
         try:
@@ -360,6 +501,7 @@ async def websocket_handler(request):
     connection = FrameworkConnection(
         websocket, resources=app[RESOURCES_KEY],
         resource_origin=str(request.url.origin()),
+        blobs=app[BLOBS_KEY],
     )
     current = asyncio.current_task()
     app[CONNECTIONS_KEY].add(connection)
@@ -403,6 +545,7 @@ async def websocket_handler(request):
         finally:
             # 11. 即使关闭操作失败，也移除登记，避免共享集合残留失效连接/任务。
             app[CONNECTIONS_KEY].discard(connection)
+            connection._clear_blob_urls()
             app[HANDLERS_KEY].discard(current)
     # 12. 将已经处理完的 WebSocketResponse 返回给 aiohttp，结束路由处理。
     #     握手响应已在 prepare 中发送，这里不会再发送一份普通 HTTP 响应。
@@ -451,6 +594,10 @@ def create_app(config_path=None, *, modules=None, backend_dir=SCRIPT_DIR):
     app[CONFIG_KEY] = config
     app[MODULES_KEY] = modules
     app[CONNECTIONS_KEY] = set()
+    http_config = config.get('http-url-config', {})
+    app[BLOBS_KEY] = BlobStore(http_config.get('max-blob-bytes', 104857600),
+                              http_config.get('tmp-blob-file', False),
+                              backend_dir / 'classify_shower' / 'temp')
     app[HANDLERS_KEY] = set()
     app[STOPPING_KEY] = asyncio.Event()
     # 应用自身及全局配置不作为资源发布，即使 base_dir 指向其上级目录。
@@ -461,6 +608,7 @@ def create_app(config_path=None, *, modules=None, backend_dir=SCRIPT_DIR):
     ))
     app.router.add_get('/ws', websocket_handler, allow_head=False)
     app.router.add_get('/api/server-info', server_info_handler)
+    app.router.add_get('/blobs/{token}/{data_name}', blob_handler)
     app.router.add_get('/resources/{root_id}/{relative_path:.*}', resource_handler)
     app.on_response_prepare.append(prepare_resource_headers)
     app.on_shutdown.append(stop_connections)
