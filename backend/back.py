@@ -62,7 +62,7 @@ class ResourceRegistry:
         try:
             target = root.joinpath(*parts).resolve(strict=True)
             # resolve 跟随符号链接和 Windows junction，检查最终磁盘路径。
-            if not target.is_relative_to(root) or self.is_protected(target):
+            if (target != root and root not in target.parents) or self.is_protected(target):
                 raise web.HTTPForbidden()
             if not target.is_file():
                 raise web.HTTPNotFound()
@@ -76,7 +76,7 @@ class ResourceRegistry:
         """模块可把允许目录内的文件转换为 URL 路径，不包含主机或端口。"""
         target = Path(file_path).resolve(strict=True)
         for root_id, root in self.roots.items():
-            if target.is_relative_to(root):
+            if target == root or root in target.parents:
                 relative = target.relative_to(root).as_posix()
                 self.resolve(root_id, relative)
                 return '/resources/' + root_id + '/' + quote(relative, safe='/')
@@ -127,7 +127,9 @@ async def server_info_handler(request):
 
 async def resource_handler(request):
     # 路径解析可能访问网络盘，放到线程执行，不阻塞 WebSocket 的事件循环。
-    target = await asyncio.to_thread(
+    # run_in_executor 兼容 Python 3.8（asyncio.to_thread 从 3.9 才提供）。
+    target = await asyncio.get_running_loop().run_in_executor(
+        None,
         request.app[RESOURCES_KEY].resolve,
         request.match_info['root_id'], request.match_info['relative_path'],
     )
@@ -332,13 +334,13 @@ async def websocket_handler(request):
     #    heartbeat：启用 Ping/Pong 存活检测，参数为 30 秒，收到数据会重置计时。
     #    timeout：关闭握手的等待超时（5 秒），不是普通消息接收超时。
     #    max_msg_size：单条接收消息最多 1 MiB，超过限制由 aiohttp 关闭连接。
-    #    writer_limit：写缓冲水位为 64 KiB，达到水位时发送会等待缓冲排空；
+    #    默认写缓冲水位为 64 KiB，达到水位时发送会等待缓冲排空；
     #                  它用于背压，不是单条发送消息的大小上限。
     #    compress=False：不协商 WebSocket 消息压缩。
     #    默认 autoping/autoclose 保持启用，由 aiohttp 响应 Ping 和关闭帧。
     websocket = web.WebSocketResponse(
         heartbeat=30, timeout=5, max_msg_size=1024 * 1024,
-        writer_limit=64 * 1024, compress=False,
+        compress=False,
     )
     # 3. 校验客户端的 Upgrade 等握手字段，成功时发送 HTTP 101 并升级为
     #    WebSocket；普通 HTTP 请求或无效握手由 aiohttp 返回相应错误响应。
