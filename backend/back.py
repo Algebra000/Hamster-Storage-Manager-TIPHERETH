@@ -2,7 +2,6 @@
 
 import asyncio
 import importlib
-import hashlib
 import json
 import logging
 import os
@@ -29,17 +28,19 @@ LOGGER = logging.getLogger(__name__)
 
 
 class ResourceRegistry:
-    """把已配置的磁盘根目录映射为稳定标识，不接受客户端提供绝对磁盘路径。"""
+    """以 base_dir 原始列表索引登记根目录，不接受客户端提供绝对磁盘路径。"""
 
     def __init__(self, roots, protected_paths=()):
         self.roots = {}
         self.protected_paths = tuple(Path(p).resolve() for p in protected_paths)
-        for value in roots:
-            root = Path(value).resolve()
-            if root.is_dir() and not self.is_protected(root):
-                identity = os.path.normcase(str(root)).encode('utf-8')
-                root_id = 'root-' + hashlib.sha256(identity).hexdigest()[:16]
-                self.roots[root_id] = root
+        for index, value in enumerate(roots):
+            try:
+                root = Path(value).resolve()
+                if root.is_dir() and not self.is_protected(root):
+                    self.roots[str(index)] = root
+            except (OSError, RuntimeError, ValueError):
+                # 无效目录保留编号空位，不影响后续配置项的索引。
+                LOGGER.warning('无法登记资源根目录 base_dir[%s]: %s', index, value)
 
     def is_protected(self, path):
         return any(path == protected or protected in path.parents
@@ -75,7 +76,10 @@ class ResourceRegistry:
     def url_for(self, file_path):
         """模块可把允许目录内的文件转换为 URL 路径，不包含主机或端口。"""
         target = Path(file_path).resolve(strict=True)
-        for root_id, root in self.roots.items():
+        # 更深的根目录优先；重复目录选择配置中最小的原始索引。
+        for root_id, root in sorted(
+            self.roots.items(), key=lambda item: (-len(item[1].parts), int(item[0]))
+        ):
             if target == root or root in target.parents:
                 relative = target.relative_to(root).as_posix()
                 self.resolve(root_id, relative)
@@ -150,9 +154,10 @@ async def resource_handler(request):
 class FrameworkConnection:
     """功能模块使用的连接适配层，不包含任何模块业务状态。"""
 
-    def __init__(self, websocket, *, send_timeout=30, resources=None):
+    def __init__(self, websocket, *, send_timeout=30, resources=None, resource_origin=None):
         self.websocket = websocket
         self.resources = resources
+        self.resource_origin = resource_origin
         self.incoming = asyncio.Queue(maxsize=32)
         self.send_timeout = send_timeout
         self._send_lock = asyncio.Lock()
@@ -190,10 +195,12 @@ class FrameworkConnection:
         await self.websocket.close(code=code, message=reason.encode('utf-8'))
 
     def resource_url(self, file_path):
-        """生成允许资源文件的服务端相对 URL。"""
+        """生成允许资源文件的绝对 HTTP(S) URL，使用本连接访问后端的地址。"""
         if self.resources is None:
             raise RuntimeError('资源登记表不可用')
-        return self.resources.url_for(file_path)
+        if self.resource_origin is None:
+            raise RuntimeError('连接的资源服务地址不可用')
+        return self.resource_origin + self.resources.url_for(file_path)
 
 
 def load_global_config(path):
@@ -350,7 +357,10 @@ async def websocket_handler(request):
 
     # 4. 包装为模块使用的连接接口，登记连接和当前处理协程。
     #    服务退出时据此找到所有连接，并等待各连接的清理流程完成。
-    connection = FrameworkConnection(websocket, resources=app[RESOURCES_KEY])
+    connection = FrameworkConnection(
+        websocket, resources=app[RESOURCES_KEY],
+        resource_origin=str(request.url.origin()),
+    )
     current = asyncio.current_task()
     app[CONNECTIONS_KEY].add(connection)
     app[HANDLERS_KEY].add(current)
@@ -424,8 +434,10 @@ def create_app(config_path=None, *, modules=None, backend_dir=SCRIPT_DIR):
     backend_dir = Path(backend_dir)
     config = load_global_config(config_path or backend_dir / 'config' / 'global_config.json')
     roots = []
+    resource_roots = []
     for root in config.get('base_dir', []):
         real_path = os.path.abspath(os.path.join(backend_dir, root))
+        resource_roots.append(real_path)
         if os.path.exists(real_path):
             roots.append(real_path)
         else:
@@ -442,7 +454,8 @@ def create_app(config_path=None, *, modules=None, backend_dir=SCRIPT_DIR):
     app[HANDLERS_KEY] = set()
     app[STOPPING_KEY] = asyncio.Event()
     # 应用自身及全局配置不作为资源发布，即使 base_dir 指向其上级目录。
-    app[RESOURCES_KEY] = ResourceRegistry(roots, protected_paths=(
+    # 使用未过滤的配置列表编号，避免不存在的目录导致后续 rootId 前移。
+    app[RESOURCES_KEY] = ResourceRegistry(resource_roots, protected_paths=(
         SCRIPT_DIR.parent, backend_dir,
         Path(config_path or backend_dir / 'config' / 'global_config.json'),
     ))
