@@ -300,6 +300,13 @@
         const probeControllers = new Set();
         let probeGeneration = 0, probeTimer = null;
 
+        /**
+         * 校验并规范化服务器地址，统一生成同端口的 HTTP 与 WebSocket 地址。
+         * 支持主机名、IPv4、带方括号的 IPv6，以及 HTTP(S)/WS(S) 地址；省略端口时使用 8768。
+         * @param {string} value 用户输入的服务器地址，允许路径为空、/ 或 /ws。
+         * @returns {{address: string, httpUrl: string, wsUrl: string}} 历史记录地址、HTTP 基地址和以 /ws 结尾的 WebSocket 地址。
+         * @throws {Error} 地址、协议或端口无效，包含账号或查询参数，或 HTTPS 页面尝试使用非加密连接。
+         */
         function normalizeServerAddress(value) {
             const text = String(value).trim();
             if (!text || /\s/.test(text)) throw new Error('请输入有效的服务器 IP 或主机名，可附带端口');
@@ -324,6 +331,10 @@
                 wsUrl: (secure ? 'wss://' : 'ws://') + host + '/ws'};
         }
 
+        /**
+         * 将最近地址和历史列表保存到浏览器 localStorage；保存失败时显示提示并保留内存记录。
+         * @returns {void}
+         */
         function saveServerHistory() {
             try {
                 localStorage.setItem(SERVER_STORAGE_KEY, JSON.stringify({last: lastServerAddress, history: serverHistory}));
@@ -331,11 +342,21 @@
                 document.getElementById('serverStorageNotice').hidden = false;
             }
         }
+
+        /**
+         * 将地址移到历史列表首位，去重后保留最近 20 项，并更新持久化记录。
+         * @param {string} address 已由 normalizeServerAddress 规范化的历史记录地址。
+         * @returns {void}
+         */
         function rememberAddress(address) {
             lastServerAddress = address;
             serverHistory = [address, ...serverHistory.filter(item => item !== address)].slice(0, 20);
             saveServerHistory();
         }
+        /**
+         * 从 localStorage 恢复历史和最近地址，忽略无效条目；存储不可用时允许继续手动连接。
+         * @returns {void}
+         */
         function loadServerHistory() {
             try {
                 const saved = JSON.parse(localStorage.getItem(SERVER_STORAGE_KEY) || '{}');
@@ -348,6 +369,11 @@
                 if (saved.last) lastServerAddress = normalizeServerAddress(saved.last).address;
             } catch { /* 存储损坏或被禁用时仍可手动连接。 */ }
         }
+
+        /**
+         * 根据历史地址、探测结果和键盘选择位置重建下拉列表，同时更新辅助访问属性。
+         * @returns {void}
+         */
         function renderServerHistory() {
             historyList.replaceChildren();
             addressInput.removeAttribute('aria-activedescendant');
@@ -374,12 +400,21 @@
                 if (index === historyIndex) addressInput.setAttribute('aria-activedescendant', item.id);
             });
         }
+        /**
+         * 将选中的历史地址填入输入框并保存，收起下拉列表；不自动切换连接。
+         * @param {number} index serverHistory 中有效条目的下标，从 0 开始。
+         * @returns {void}
+         */
         function selectServerHistory(index) {
             addressInput.value = serverHistory[index];
             addressInput.setCustomValidity('');
             rememberAddress(addressInput.value);
             closeServerHistory(); addressInput.focus(); closeServerHistory();
         }
+        /**
+         * 收起历史列表、清除选择状态，取消正在执行的探测和下次刷新，并使旧探测结果失效。
+         * @returns {void}
+         */
         function closeServerHistory() {
             historyList.hidden = true; historyIndex = -1;
             addressInput.setAttribute('aria-expanded', 'false');
@@ -388,9 +423,19 @@
             for (const controller of probeControllers) controller.abort();
             probeControllers.clear();
         }
+
+        /**
+         * 探测历史地址的服务信息并更新红绿圆点；最多并发 4 个请求，每个请求超时 2.5 秒。
+         * 列表仍打开且本轮未失效时，在本轮结束 15 秒后再次探测；此探测不代替连接版本校验。
+         * @returns {Promise<void>} 本轮所有探测任务结束后完成，不等待下一轮刷新。
+         */
         async function probeServerHistory() {
             const generation = ++probeGeneration;
             const addresses = [...serverHistory]; let next = 0;
+            /**
+             * 从本轮共享地址队列中逐个探测，忽略已取消或过期的结果；已验证的连接可证明服务可达。
+             * @returns {Promise<void>} 队列耗尽、列表收起或探测轮次失效时完成。
+             */
             async function worker() {
                 while (!historyList.hidden && generation === probeGeneration && next < addresses.length) {
                     const address = addresses[next++];
@@ -416,11 +461,22 @@
             await Promise.all(Array.from({length: Math.min(4, addresses.length)}, worker));
             if (generation === probeGeneration && !historyList.hidden) probeTimer = setTimeout(probeServerHistory, 15000);
         }
+
+        /**
+         * 取消上一轮探测，展开并绘制历史列表，立即启动新的可达性探测。
+         * @returns {void}
+         */
         function openServerHistory() {
             closeServerHistory(); historyList.hidden = false;
             addressInput.setAttribute('aria-expanded', 'true');
             renderServerHistory(); probeServerHistory();
         }
+
+        /**
+         * 更新连接按钮、状态文字和根目录输入框；连接成功可标记绿点，断开不直接标记红点。
+         * @param {'connecting'|'retrying'|'connected'|'disconnected'} state 当前连接状态。
+         * @returns {void}
+         */
         function updateConnectionUI(state) {
             const active = state !== 'disconnected';
             connectButton.textContent = active ? '断开' : '连接';
@@ -436,6 +492,12 @@
                 if (!historyList.hidden) renderServerHistory();
             }
         }
+
+        /**
+         * 恢复地址记录，绑定连接按钮、历史选择和键盘事件，设置页面退出清理与工具栏高度监听。
+         * 模块初始化后调用一次，最后自动连接最近地址，无历史时使用 localhost:8768。
+         * @returns {void}
+         */
         function initializeServerControls() {
             loadServerHistory();
             addressInput.value = lastServerAddress || 'localhost:8768';
@@ -478,26 +540,55 @@
             connect();
         }
 
-        // 每个管理器拥有自己的定时器和连接代号；关闭后旧事件不能再影响界面。
+        /**
+         * 创建带版本握手和自动重连的连接管理器；每个管理器独立维护定时器和连接代号。
+         * 首条 BACKEND_VERSION 验证通过后才允许业务收发，主动关闭后旧事件不再影响界面。
+         * @param {string} url 规范化的 WebSocket 地址，以 /ws 结尾。
+         * @param {function(MessageEvent, function(): boolean): (void|Promise<void>)} onMessage 业务消息处理函数，第二个参数用于检查消息所属连接是否仍有效。
+         * @returns {{url: string, send: Function, close: Function, reconnect: Function, isConnected: Function, isActive: Function}} 连接管理器；调用方须将其赋给全局 socket，连接在微任务中启动。
+         */
         function createAutoReconnectWebSocket(url, onMessage) {
             let ws = null, timer = null, openingTimer = null;
             let stopped = false, connected = false, attempt = 0, generation = 0;
             let messages = Promise.resolve();
+            /**
+             * 检查管理器是否仍是当前连接管理器且未停止。
+             * @returns {boolean}
+             */
             const active = () => !stopped && socket === api;
+
+            /**
+             * 取消重连等待和连接/版本验证超时定时器，并清空定时器引用。
+             * @returns {void}
+             */
             function clearTimers() {
                 clearTimeout(timer); clearTimeout(openingTimer);
                 timer = openingTimer = null;
             }
+            /**
+             * 仅对已通过版本验证的连接执行一次断线回调，先清除已连接标记以避免重复通知。
+             * @returns {void}
+             */
             function notifyDisconnect() {
                 if (connected) {
                     connected = false;
                     basicEvent.when_disconnect();
                 }
             }
+            /**
+             * 发起一次 WebSocket 连接并绑定本次连接的事件，建立连接最多等待 10 秒。
+             * 建立后最多等待 5 秒验证首条版本消息；业务消息串行分发，普通断线交由 schedule 重试。
+             * @returns {void}
+             */
             function open() {
                 if (!active()) return;
                 clearTimers();
                 const id = ++generation;
+
+                /**
+                 * 检查本次连接代号是否仍有效，阻止旧连接的异步事件影响当前状态。
+                 * @returns {boolean}
+                 */
                 const current = () => active() && id === generation;
                 updateConnectionUI(attempt ? 'retrying' : 'connecting');
                 try {
@@ -511,14 +602,50 @@
                 openingTimer = setTimeout(() => {
                     if (current() && transport.readyState === WebSocket.CONNECTING) transport.close();
                 }, 10000);
+                
+                /**
+                 * 终止当前连接及重连计划，在状态栏和地址输入框中提示版本验证失败。
+                 * @param {string} reason 显示给用户的失败原因。
+                 * @returns {void}
+                 */
+                function rejectVersion(reason) {
+                    if (!current()) return;
+                    api.close();
+                    statusElement.textContent = '🟥 版本错误';
+                    addressInput.setCustomValidity(reason);
+                    addressInput.reportValidity();
+                }
                 transport.onopen = () => {
                     if (!current()) { transport.close(); return; }
                     clearTimeout(openingTimer);
-                    connected = true; attempt = 0;
-                    basicEvent.when_connect();
-                    updateConnectionUI('connected');
+                    statusElement.textContent = '🟨 正在验证';
+                    openingTimer = setTimeout(() => rejectVersion('后端版本验证超时，需要 ' + VERSION_NAME + ' 支持'), 5000);
                 };
                 transport.onmessage = event => {
+                    if (!current()) return;
+                    if (!connected) {
+                        // 与 ROLAND 一致：首条消息声明后端支持的前端版本列表。
+                        // 验证前不分发业务消息，也不允许模块发送消息。
+                        let data;
+                        try {
+                            if (typeof event.data !== 'string') throw new Error('Expected text');
+                            data = JSON.parse(event.data);
+                        } catch {
+                            rejectVersion('后端版本信息无效');
+                            return;
+                        }
+                        if (!data || data.command !== 'BACKEND_VERSION' || !Array.isArray(data.version)
+                            || !data.version.some(version => typeof version === 'string'
+                                && version.trim().split(/\s+/)[0] === VERSION_NAME)) {
+                            rejectVersion('后端不支持当前前端，需要 ' + VERSION_NAME + ' 支持');
+                            return;
+                        }
+                        clearTimeout(openingTimer);
+                        connected = true; attempt = 0;
+                        basicEvent.when_connect();
+                        updateConnectionUI('connected');
+                        return;
+                    }
                     // 串行处理 Blob 等异步消息，切换连接后丢弃旧消息。
                     messages = messages.then(() => current() && onMessage(event, current))
                         .catch(error => console.error('消息处理失败:', error));
@@ -534,19 +661,32 @@
                     schedule();
                 };
             }
+            /**
+             * 为仍有效的管理器安排重连，每次固定等待 1 秒；清除先前的重连定时器以避免重复尝试。
+             * @returns {void}
+             */
             function schedule() {
                 if (!active()) return;
-                const delay = Math.min(1000 * 2 ** Math.min(attempt++, 5), 30000);
+                const delay = 1000;//Math.min(1000 * 2 ** Math.min(attempt++, 5), 30000);
                 updateConnectionUI('retrying');
                 clearTimeout(timer);
                 timer = setTimeout(open, delay);
             }
             const api = {
                 url,
+                /**
+                 * 在当前连接通过版本验证且 WebSocket 已打开时发送数据，不缓存或自动序列化。
+                 * @param {string|ArrayBuffer|ArrayBufferView|Blob} data 原生 WebSocket 支持的消息载荷。
+                 * @returns {boolean} 是否成功交给 WebSocket 发送，不代表后端业务处理成功。
+                 */
                 send(data) {
-                    if (!active() || !ws || ws.readyState !== WebSocket.OPEN) return false;
+                    if (!active() || !connected || !ws || ws.readyState !== WebSocket.OPEN) return false;
                     try { ws.send(data); return true; } catch { return false; }
                 },
+                /**
+                 * 停止本管理器，取消定时器并使旧连接事件失效，必要时通知模块断线并关闭 WebSocket。
+                 * @returns {void}
+                 */
                 close() {
                     if (stopped) return;
                     stopped = true; ++generation;
@@ -555,6 +695,10 @@
                     if (ws) ws.close();
                     if (socket === api) updateConnectionUI('disconnected');
                 },
+                /**
+                 * 仅在本管理器仍是全局 socket 时，清理旧连接并立即发起一次新的连接尝试。
+                 * @returns {void}
+                 */
                 reconnect() {
                     if (socket !== api) return;
                     stopped = false; ++generation;
@@ -562,7 +706,15 @@
                     if (ws) ws.close();
                     attempt = 0; open();
                 },
+                /**
+                 * 判断当前管理器是否有效且连接已通过版本验证。
+                 * @returns {boolean}
+                 */
                 isConnected: () => active() && connected,
+                /**
+                 * 判断当前管理器是否仍由全局 socket 使用且未被主动停止。
+                 * @returns {boolean}
+                 */
                 isActive: () => active()
             };
             // 等调用方把 api 赋给全局 socket 后再连接。
@@ -570,6 +722,13 @@
             return api;
         }
 
+        /**
+         * 解析 JSON 文本或 HSV1 二进制业务消息，并按注册顺序分发给模块。
+         * SET_NOWPATH 先更新根目录框；Blob 转换后再次检查连接有效性，解析错误仅记录日志。
+         * @param {MessageEvent} event WebSocket 消息事件，data 为文本、ArrayBuffer 或 Blob。
+         * @param {function(): boolean} [isCurrent] 检查消息所属连接是否仍有效，默认始终有效。
+         * @returns {Promise<void>} 消息解析和同步回调分发完成后结束，不等待模块回调返回的 Promise。
+         */
         async function messageProc(event, isCurrent = () => true)
         {
             try {
@@ -624,6 +783,10 @@
 
 
 
+        /**
+         * 校验输入地址，停止旧连接并保存历史，然后创建新的连接管理器；输入无效时提示且保留旧连接。
+         * @returns {void}
+         */
         function connect() {
             let target;
             try {
@@ -642,13 +805,20 @@
             updateConnectionUI('connecting');
         }
 
+        /**
+         * 主动停止连接和重连计划，清空全局 socket 并将界面恢复为未连接状态。
+         * @returns {void}
+         */
         function disconnect() {
             if (socket) socket.close();
             socket = null;
             updateConnectionUI('disconnected');
         }
 
-        // 页面加载时自动连接
+        /**
+         * 依次执行模块初始化回调，再初始化服务器地址控件并自动连接；单个回调异常不阻止其余回调。
+         * @returns {void}
+         */
         window.onload = function() {
             // 遍历执行 onload 函数列表
             for (const func of onload_func_list) {

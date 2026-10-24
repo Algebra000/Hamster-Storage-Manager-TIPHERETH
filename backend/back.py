@@ -265,6 +265,11 @@ async def dispatch_connection(connection, app):
     """一个连接只有一个业务消费者，保持模块回调和消息的顺序。"""
     modules = app[MODULES_KEY]
     try:
+        # 首条消息声明支持的前端版本，必须早于路径和模块初始化消息。
+        await connection.send(json.dumps({
+            'command': 'BACKEND_VERSION',
+            'version': [BACK_VERSION],
+        }, ensure_ascii=False))
         await connection.send(json.dumps({
             'command': 'SET_NOWPATH',
             'path': '; '.join(app[CONFIG_KEY]['base_dir']),
