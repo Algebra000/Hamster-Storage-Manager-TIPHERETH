@@ -22,30 +22,6 @@
             };
         }
     </script>
-    <script>
-        // 统一地址接口；rootId 从后端 /api/server-info 的 resource_roots 获取。
-        function get_backend_http_url(path = '') {
-            if (!socket) throw new Error('尚未选择后端连接');
-            const url = new URL(socket.url);
-            url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
-            url.pathname = '/';
-            url.search = '';
-            url.hash = '';
-            const result = new URL(path, url);
-            if (result.origin !== url.origin) throw new Error('资源必须属于当前后端');
-            return result.href;
-        }
-        function get_resource_url(rootId, relativePath) {
-            if (typeof rootId !== 'string' || !rootId || rootId === '.' || rootId === '..'
-                || typeof relativePath !== 'string') throw new Error('无效的资源路径');
-            const parts = String(relativePath).replace(/\\/g, '/').split('/');
-            if (!rootId || parts.some(part => !part || part === '.' || part === '..')) {
-                throw new Error('无效的资源路径');
-            }
-            return get_backend_http_url('/resources/' + encodeURIComponent(rootId)
-                + '/' + parts.map(encodeURIComponent).join('/'));
-        }
-    </script>
     <script src="./frontend/frame.js"></script>
     <script src="./frontend/treemap.js"></script>
 

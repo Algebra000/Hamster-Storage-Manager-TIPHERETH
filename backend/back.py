@@ -190,7 +190,7 @@ class FrameworkConnection:
         await self.websocket.close(code=code, message=reason.encode('utf-8'))
 
     def resource_url(self, file_path):
-        """生成服务端相对 URL；客户端用 get_backend_http_url 转为完整地址。"""
+        """生成允许资源文件的服务端相对 URL。"""
         if self.resources is None:
             raise RuntimeError('资源登记表不可用')
         return self.resources.url_for(file_path)
