@@ -3,6 +3,18 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!--APK_START-->
+    <script>
+        // In the APK, use a fixed CSS layout width and fit it to the window.
+        // Leave ordinary browser rendering unchanged.
+        if (location.hostname === 'appassets.androidplatform.net') {
+            const viewport = document.querySelector('meta[name="viewport"]');
+            const APP_LAYOUT_WIDTH = 1280;
+            // Omit initial-scale=1 so WebView can fit this wider layout to the window.
+            viewport.content = 'width=' + APP_LAYOUT_WIDTH;
+        }
+    </script>
+    <!--APK_END-->
     <link rel="icon" href="./icon.ico" type="image/x-icon">
     <title>网页文件查看器 - TIPHERETH 1.0.0</title>
     <script>
@@ -578,7 +590,7 @@
                 openingTimer = setTimeout(() => {
                     if (current() && transport.readyState === WebSocket.CONNECTING) transport.close();
                 }, 10000);
-                
+
                 /**
                  * 终止当前连接及重连计划，在状态栏和地址输入框中提示版本验证失败。
                  * @param {string} reason 显示给用户的失败原因。
