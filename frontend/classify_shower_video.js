@@ -745,11 +745,18 @@ class CS_AnimeWidget {
             imgContainer.style.cssText = 'flex:1;min-height:0;padding:5px;width:calc(100% - 10px);background:rgba(255,255,255,0.1);overflow:hidden;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);';
             
             const img = document.createElement('img');
-            img.src = anime.poster || '';
             img.style.cssText = 'max-width:100%;max-height:100%;border-radius:8px;';
-            img.onerror = () => { img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23ddd" width="100" height="100"/><text x="50" y="50" text-anchor="middle" dy=".3em" fill="%23999" font-size="12">无海报</text></svg>'; };
+            const showMissingPoster = () => {
+                img.onerror = null;
+                img.remove();
+                imgContainer.textContent = '无海报';
+            };
+            img.onerror = showMissingPoster;
             
             imgContainer.appendChild(img);
+            // poster 是后端生成的完整 HTTP(S) URL，前端不拼接磁盘路径。
+            if (anime.poster) img.src = anime.poster;
+            else showMissingPoster();
             card.appendChild(imgContainer);
 
             const infoDiv = document.createElement('div');

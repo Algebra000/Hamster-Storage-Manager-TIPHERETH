@@ -16,6 +16,7 @@ import time
 import uuid
 import platform
 from http.client import HTTPException
+from aiohttp.web_exceptions import HTTPException as CSResourceHTTPException
 import shutil
 import tarfile
 import tempfile
@@ -3381,11 +3382,25 @@ class ClassifyShowerVideo:
 
             print(f"[分类展示模块] 收到获取番剧分页请求: page={page}, sortBy={sort_by}, sortOrder={sort_order}, tagFilter={tag_filter_enabled}")
             result = self.get_anime_page(page, page_size, sort_by, sort_order, tag_filter_enabled, selected_tags)
+            # 数据库存磁盘路径；仅在发送时按当前连接生成完整资源 URL。
+            # 网络盘路径校验可能阻塞，放到工作线程，不把数据库连接传入线程。
+            anime_list = []
+            for anime in result['animeList']:
+                item = dict(anime)
+                item['poster'] = ''
+                if anime.get('poster'):
+                    try:
+                        item['poster'] = await asyncio.get_running_loop().run_in_executor(
+                            None, websocket.resource_url, anime['poster'])
+                    except (OSError, ValueError, RuntimeError, CSResourceHTTPException):
+                        # 单张封面缺失或不允许访问，不影响其余列表数据。
+                        pass
+                anime_list.append(item)
 
             message = json.dumps({
                 'command': 'ANIME_PAGE_DATA',
                 'widgetId': widget_id,
-                'animeList': result['animeList'],
+                'animeList': anime_list,
                 'total': result['total'],
                 'allTags': result['allTags'],
                 'page': result['page'],
