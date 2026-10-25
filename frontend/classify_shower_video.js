@@ -693,7 +693,7 @@ class CS_AnimeWidget {
 
     async createMainDisplay(container) {
         const mainDisplay = document.createElement('div');
-        mainDisplay.style.cssText = 'flex:1;height:100%;padding:20px;display:flex;flex-direction:column;gap:20px;overflow:hidden;box-sizing:border-box;';
+        mainDisplay.style.cssText = 'flex:1;height:100%;padding:14px 10px 6px 10px;display:flex;flex-direction:column;gap:14px;overflow:hidden;box-sizing:border-box;';
 
         const searchBar = document.createElement('div');
         searchBar.style.cssText = 'display:flex;gap:10px;padding-right:150px;';
@@ -710,11 +710,11 @@ class CS_AnimeWidget {
         mainDisplay.appendChild(searchBar);
 
         this.posterContainer = document.createElement('div');
-        this.posterContainer.style.cssText = 'flex:1;display:grid;grid-template-columns:repeat(5,1fr);grid-template-rows:repeat(2,1fr);gap:20px;overflow:hidden;min-height:0;padding:5px;box-sizing:border-box;';
+        this.posterContainer.style.cssText = 'flex:1;display:grid;grid-template-columns:repeat(5,1fr);grid-template-rows:repeat(2,1fr);column-gap:20px;row-gap:6px;overflow:hidden;min-height:0;padding:5px;box-sizing:border-box;';
         mainDisplay.appendChild(this.posterContainer);
 
         this.paginationContainer = document.createElement('div');
-        this.paginationContainer.style.cssText = 'display:flex;justify-content:center;align-items:center;gap:8px;padding:10px;';
+        this.paginationContainer.style.cssText = 'display:flex;justify-content:center;align-items:center;gap:8px;padding:4px;';
         mainDisplay.appendChild(this.paginationContainer);
 
         container.appendChild(mainDisplay);
@@ -760,7 +760,7 @@ class CS_AnimeWidget {
             card.appendChild(imgContainer);
 
             const infoDiv = document.createElement('div');
-            infoDiv.style.cssText = 'padding:5px;display:flex;flex-direction:column;gap:3px;align-items:center;background:rgba(255,255,255,0.9);';
+            infoDiv.style.cssText = 'padding:2px;display:flex;flex-direction:column;gap:2px;align-items:center;background:rgba(255,255,255,0.9);';
 
             const titleDiv = document.createElement('div');
             titleDiv.style.cssText = 'font-size:14px;font-weight:bold;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;text-align:center;';
