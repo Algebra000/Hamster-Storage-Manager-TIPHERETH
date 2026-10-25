@@ -3415,6 +3415,17 @@ class ClassifyShowerVideo:
             anime_id = data.get('animeId')
             print(f"[分类展示模块] 收到获取番剧详情请求: animeId={anime_id}")
             result = self.get_anime_detail(anime_id)
+            if result:
+                result = dict(result)
+                cover_path = result.get('coverPath')
+                result['coverPath'] = ''
+                if cover_path:
+                    try:
+                        result['coverPath'] = await asyncio.get_running_loop().run_in_executor(
+                            None, websocket.resource_url, cover_path)
+                    except (OSError, ValueError, RuntimeError, CSResourceHTTPException):
+                        # 海报失效不影响详情；不向前端回退发送磁盘路径。
+                        pass
             message = json.dumps({
                 'command': 'ANIME_DETAIL_DATA',
                 'widgetId': widget_id,

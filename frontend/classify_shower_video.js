@@ -911,6 +911,10 @@ class CS_AnimeDetailWidget {
         const posterImg = document.createElement('img');
         posterImg.style.cssText = 'width:100%;max-height:500px;object-fit:contain;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);';
         posterDiv.appendChild(posterImg);
+        this.posterMissing = document.createElement('span');
+        this.posterMissing.textContent = '无海报';
+        this.posterMissing.hidden = true;
+        posterDiv.appendChild(this.posterMissing);
 
         const infoDiv = document.createElement('div');
         infoDiv.style.cssText = 'flex:1;display:flex;flex-direction:column;gap:15px;min-width:0;';
@@ -1012,8 +1016,18 @@ class CS_AnimeDetailWidget {
         const d = this.detail;
         if (!d) return;
 
-        this.posterImg.src = d.coverPath || '';
-        this.posterImg.onerror = () => { this.posterImg.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23ddd" width="100" height="100"/><text x="50" y="50" text-anchor="middle" dy=".3em" fill="%23999" font-size="12">无海报</text></svg>'; };
+        const showMissingPoster = () => {
+            this.posterImg.onerror = null;
+            this.posterImg.removeAttribute('src');
+            this.posterImg.hidden = true;
+            this.posterMissing.hidden = false;
+        };
+        this.posterImg.onerror = showMissingPoster;
+        this.posterImg.hidden = false;
+        this.posterMissing.hidden = true;
+        // coverPath 由后端返回完整 HTTP(S) URL，不在前端转换路径。
+        if (d.coverPath) this.posterImg.src = d.coverPath;
+        else showMissingPoster();
 
         this.nameDiv.textContent = d.mdName || d.name || '未知名称';
 
