@@ -1738,10 +1738,13 @@ class CS_VideoPlayerWidget {
                     || data.videoPath !== this.currentEpisode?.path) return;
                 this.forceBufferedPlayback = data['force-buffered-playback'] === true;
                 this.playbackSource = this.currentEpisode.path;
+                this.playbackUrl = typeof data.videoUrl === 'string' ? data.videoUrl : '';
+                this.playbackError = data.error || null;
                 this.h265PlaybackBlocked = false;
                 if (data['video-stream'] === 'H265' && !this.supportsH265()) {
                     const compatFile = typeof data.compat_file === 'string' ? data.compat_file : '';
-                    if (compatFile) {
+                    if (compatFile && data.compatUrl) {
+                        this.playbackUrl = data.compatUrl;
                         this.playbackSource = compatFile;
                         this.forceBufferedPlayback = false;
                     } else {
@@ -3580,7 +3583,7 @@ class CS_VideoPlayerWidget {
 
         const source = this.playbackSource || this.currentEpisode.path;
         const nativePlayback = !this.forceBufferedPlayback && this.isNativeVideo(source);
-        const videoPath = nativePlayback ? this.getVideoUrl(source) : '';
+        const videoPath = nativePlayback ? this.playbackUrl : '';
         const hasDanmu = this.currentEpisode.hasDanmu;
 
         // 如果有弹幕，加载弹幕脚本
@@ -3611,7 +3614,7 @@ class CS_VideoPlayerWidget {
                 }]
             ]
         };
-        if (nativePlayback && !this.h265PlaybackBlocked) {
+        if (nativePlayback && !this.h265PlaybackBlocked && !this.playbackError && videoPath) {
             playerOptions.src = videoPath;
         }
 
@@ -3624,7 +3627,9 @@ class CS_VideoPlayerWidget {
         this.player = new NPlayer.Player(playerOptions);
         this.player.mount();
 
-        if (this.h265PlaybackBlocked) {
+        if (this.playbackError || (nativePlayback && !this.playbackUrl && !this.h265PlaybackBlocked)) {
+            this.showStreamErrorOverlay(this.playbackError || '后端未提供可用的视频地址');
+        } else if (this.h265PlaybackBlocked) {
             const video = this.player.video;
             if (video) video.style.background = '#000';
             container.style.background = '#000';
@@ -3676,6 +3681,8 @@ class CS_VideoPlayerWidget {
         this.autoSeekTime = 0;
         this.forceBufferedPlayback = false;
         this.playbackSource = null;
+        this.playbackUrl = '';
+        this.playbackError = null;
         this.h265PlaybackBlocked = false;
         if (this.player && this.player.dispose) {
             this.player.dispose();
@@ -4312,27 +4319,6 @@ class CS_VideoPlayerWidget {
             console.error('NPlayer弹幕插件加载失败:', err);
         };
         document.head.appendChild(danmakuScript);
-    }
-
-    getVideoUrl(path) {
-        // 按路径段编码，保留兼容文件和子目录中的目录分隔符。
-        const encodePath = value => value.split('/').map(encodeURIComponent).join('/');
-        const root = String(this.rootPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
-        const relativePath = String(path || '').replace(/\\/g, '/').replace(/^\/+/, '');
-        let base;
-        if (root.startsWith('//')) {
-            // Windows UNC 路径：\\server\share -> file://server/share。
-            base = `file:${encodePath(root)}`;
-        } else if (/^[A-Za-z]:\//.test(root)) {
-            base = `file:///${root.slice(0, 2)}${encodePath(root.slice(2))}`;
-        } else if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(root)) {
-            base = root;
-        } else if (root.startsWith('/')) {
-            base = `file://${encodePath(root)}`;
-        } else {
-            base = encodePath(root);
-        }
-        return `${base}/${encodePath(relativePath)}`;
     }
 
     saveCurrentTime() {

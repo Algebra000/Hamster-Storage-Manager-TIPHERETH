@@ -3467,19 +3467,31 @@ class ClassifyShowerVideo:
             
             playback_policy = {'force-buffered-playback': False, 'buffered-playback-reason': None,
                                'video-stream': '', 'compat_file': ''}
+            video_url = ''
+            compat_url = ''
+            playback_error = None
+            resolved_video = None
             try:
                 resolved_video = self.resolve_video_path(root_path, video_path)
                 playback_policy = self.read_video_playback_policy(resolved_video)
+                video_url = await asyncio.get_running_loop().run_in_executor(
+                    None, websocket.resource_url, resolved_video)
+                if playback_policy['compat_file']:
+                    try:
+                        compat_url = await asyncio.get_running_loop().run_in_executor(
+                            None, websocket.resource_url, playback_policy['compat_file'])
+                    except (OSError, ValueError, RuntimeError, CSResourceHTTPException):
+                        playback_policy['compat_file'] = ''
                 if playback_policy['compat_file']:
                     playback_policy['compat_file'] = os.path.relpath(
                         playback_policy['compat_file'], os.path.realpath(root_path)).replace(os.sep, '/')
-            except (OSError, ValueError, TypeError):
-                pass
+            except (OSError, ValueError, TypeError, RuntimeError, CSResourceHTTPException):
+                playback_error = '视频不存在或不允许访问'
             danmaku_data = []
             has_danmaku = False
             auto_seek_time = 0
-            if root_path and video_path:
-                dm_dir = os.path.join(root_path, f'{video_path}@meta')
+            if resolved_video and not playback_error:
+                dm_dir = resolved_video + '@meta'
                 dmcf_json_path = os.path.join(dm_dir, 'rmcf.json')
                 
                 if os.path.exists(dmcf_json_path):
@@ -3506,6 +3518,9 @@ class ClassifyShowerVideo:
 
             message = json.dumps({
                 'command': 'CS_VIDEO_DATA',
+                'videoUrl': video_url,
+                'compatUrl': compat_url,
+                'error': playback_error,
                 'widgetId': widget_id,
                 'has-danmaku': has_danmaku,
                 'danmaku-data': danmaku_data,
