@@ -536,7 +536,9 @@
          * @returns {{url: string, send: Function, close: Function, reconnect: Function, isConnected: Function, isActive: Function}} 连接管理器；调用方须将其赋给全局 socket，连接在微任务中启动。
          */
         function createAutoReconnectWebSocket(url, onMessage) {
-            let ws = null, timer = null, openingTimer = null;
+            let ws = null, timer = null, openingTimer = null, heartbeatTimer = null;
+            const retiredTransports = new Set();
+            let reconnectReason = '连接中断';
             let stopped = false, connected = false, attempt = 0, generation = 0;
             let messages = Promise.resolve();
             const connectionBytes = crypto.getRandomValues(new Uint8Array(16));
@@ -558,8 +560,8 @@
              * @returns {void}
              */
             function clearTimers() {
-                clearTimeout(timer); clearTimeout(openingTimer);
-                timer = openingTimer = null;
+                clearTimeout(timer); clearTimeout(openingTimer); clearTimeout(heartbeatTimer);
+                timer = openingTimer = heartbeatTimer = null;
             }
             /**
              * 仅对已通过版本验证的连接执行一次断线回调，先清除已连接标记以避免重复通知。
@@ -581,6 +583,16 @@
                 if (!active()) return;
                 clearTimers();
                 const id = ++generation;
+                const previous = ws;
+                if (previous && previous.readyState === WebSocket.OPEN && retiredTransports.size === 0) retiredTransports.add(previous);
+                else if (previous && !retiredTransports.has(previous)) previous.close();
+                const isReconnect = sessionStarted || attempt > 0;
+                if (isReconnect) {
+                    try {
+                        window.frame_show_notice?.(`${reconnectReason}，正在尝试重新连接。`, 15000, '#F8D7DA', true, '#842029');
+                    } catch (error) { console.warn('显示重连通知失败:', error); }
+                }
+                connected = false;
 
                 /**
                  * 检查本次连接代号是否仍有效，阻止旧连接的异步事件影响当前状态。
@@ -596,9 +608,27 @@
                 }
                 const transport = ws;
                 let connectedAt = null;
+                let lastPong = 0, sequence = 0;
+                const pendingPings = new Set();
+                function heartbeat() {
+                    if (!current() || !connected) return;
+                    if (performance.now() - lastPong >= 3000) {
+                        reconnectReason = '心跳超过 3 秒未应答';
+                        connected = false;
+                        open();
+                        return;
+                    }
+                    pendingPings.add(++sequence);
+                    try { transport.send(JSON.stringify({command:'HEARTBEAT_PING', sequence})); }
+                    catch { reconnectReason = '心跳发送失败'; connected = false; open(); return; }
+                    heartbeatTimer = setTimeout(heartbeat, 1000);
+                }
                 transport.binaryType = 'arraybuffer';
                 openingTimer = setTimeout(() => {
-                    if (current() && transport.readyState === WebSocket.CONNECTING) transport.close();
+                    if (current() && transport.readyState === WebSocket.CONNECTING) {
+                        reconnectReason = '建立连接超时';
+                        open();
+                    }
                 }, 10000);
 
                 /**
@@ -617,7 +647,12 @@
                     if (!current()) { transport.close(); return; }
                     clearTimeout(openingTimer);
                     statusElement.textContent = '🟨 正在验证';
-                    openingTimer = setTimeout(() => rejectVersion('后端版本验证超时，需要 ' + VERSION_NAME + ' 支持'), 5000);
+                    openingTimer = setTimeout(() => {
+                        if (!current()) return;
+                        reconnectReason = '连接验证超时';
+                        connected = false;
+                        open();
+                    }, 5000);
                 };
                 transport.onmessage = event => {
                     if (!current()) return;
@@ -641,12 +676,33 @@
                         clearTimeout(openingTimer);
                         connected = true; attempt = 0;
                         connectedAt = Date.now();
+                        lastPong = performance.now();
+                        for (const retired of retiredTransports) retired.close();
+                        retiredTransports.clear();
+                        heartbeatTimer = setTimeout(heartbeat, 1000);
                         if (!sessionStarted) {
                             sessionStarted = true;
                             basicEvent.when_connect();
                         }
                         updateConnectionUI('connected');
+                        if (isReconnect) {
+                            try {
+                                window.frame_show_notice?.('重新连接成功。', 15000, '#D1E7DD', true, '#0F5132');
+                            } catch (error) { console.warn('显示重连成功通知失败:', error); }
+                        }
                         return;
+                    }
+                    if (typeof event.data === 'string') {
+                        try {
+                            const reply = JSON.parse(event.data);
+                            if (reply.command === 'HEARTBEAT_PONG') {
+                                if (pendingPings.has(reply.sequence)) {
+                                    lastPong = performance.now();
+                                    for (const n of pendingPings) if (n <= reply.sequence) pendingPings.delete(n);
+                                }
+                                return;
+                            }
+                        } catch { /* 普通消息交由原处理逻辑解析。 */ }
                     }
                     // 串行处理 Blob 等异步消息，切换连接后丢弃旧消息。
                     messages = messages.then(() => current() && onMessage(event, current))
@@ -658,7 +714,6 @@
                 };
                 transport.onclose = (event = {}) => {
                     if (!current()) return;
-                    const wasConnected = connected;
                     const diagnostic = {
                         time: new Date().toISOString(),
                         url,
@@ -668,23 +723,11 @@
                         connectedForMs: connectedAt === null ? null : Date.now() - connectedAt
                     };
                     console.warn('[WebSocket 断线]', diagnostic);
-                    clearTimeout(openingTimer);
+                    clearTimeout(openingTimer); clearTimeout(heartbeatTimer);
+                    reconnectReason = `连接关闭（${diagnostic.code ?? '未知'}）：${diagnostic.reason || '未提供原因'}`;
                     connected = false;
                     schedule();
-                    // 在页面清理之后显示，通知保留 15 秒，便于测试记录。
-                    // 只有已连接会话意外断开才弹通知，避免重试失败反复刷屏。
-                    if (wasConnected && typeof window.frame_show_notice === 'function') {
-                        const duration = Math.round(diagnostic.connectedForMs / 1000);
-                        const clean = diagnostic.wasClean === null ? '未知' : diagnostic.wasClean ? '是' : '否';
-                        const detail = diagnostic.code === 1006 ? '（未收到正常关闭帧，具体原因需结合后端及代理日志）' : '';
-                        try {
-                            window.frame_show_notice(
-                                `连接中断，正在重连。时间：${new Date().toLocaleString()}；关闭码：${diagnostic.code ?? '未知'}${detail}；原因：${diagnostic.reason || '对端未提供'}；正常关闭：${clean}；本次连接持续：${duration} 秒。详细信息见控制台。`,
-                                15000, '#F8D7DA', true, '#842029');
-                        } catch (error) {
-                            console.error('显示断线通知失败:', error);
-                        }
-                    }
+
                 };
             }
             /**
@@ -693,7 +736,8 @@
              */
             function schedule() {
                 if (!active()) return;
-                const delay = 1000;//Math.min(1000 * 2 ** Math.min(attempt++, 5), 30000);
+                ++attempt;
+                const delay = 1000;
                 updateConnectionUI('retrying');
                 clearTimeout(timer);
                 timer = setTimeout(open, delay);
@@ -733,6 +777,8 @@
                     clearTimers();
                     notifyDisconnect();
                     if (ws) ws.close();
+                    for (const retired of retiredTransports) retired.close();
+                    retiredTransports.clear();
                     if (socket === api) updateConnectionUI('disconnected');
                 },
                 /**

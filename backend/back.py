@@ -248,6 +248,7 @@ class FrameworkConnection:
         self.attached.set()
         self.expiry = None
         self.worker = None
+        self.attach_lock = asyncio.Lock()
         self.resources = resources
         self.resource_origin = resource_origin
         self._blobs = blobs
@@ -474,15 +475,24 @@ async def dispatch_connection(connection, app, handshake=True):
                                reason='Module callback failed')
 
 
-async def receive_messages(connection):
+async def receive_messages(connection, transport=None):
     # 独立读取网络，以便业务协程等待时仍处理心跳与关闭帧。
-    async for message in connection.websocket:
+    transport = transport if transport is not None else connection.websocket
+    async for message in transport:
+        if transport is not connection.websocket:
+            return
         if message.type == WSMsgType.TEXT:
             if connection.connection_id:
                 try:
                     command = json.loads(message.data)
                 except (ValueError, TypeError):
                     command = None
+                if isinstance(command, dict) and command.get('command') == 'HEARTBEAT_PING':
+                    sequence = command.get('sequence')
+                    if type(sequence) is int and 0 <= sequence <= 9007199254740991:
+                        await asyncio.wait_for(transport.send_json({
+                            'command': 'HEARTBEAT_PONG', 'sequence': sequence}), timeout=3)
+                    continue
                 if isinstance(command, dict) and command.get('command') == 'SESSION_DISCONNECT':
                     connection.ended = True
                     return
@@ -530,52 +540,59 @@ async def expire_session(app, connection):
 
 async def resumable_websocket(request, connection_id):
     app = request.app
-    # 同一 ID 只能有一条活跃传输，避免旧连接抢占新连接或重复分发。
     connection = app[SESSIONS_KEY].get(connection_id)
-    if connection and getattr(connection, "attaching", False):
-        raise web.HTTPConflict(text='Session already attached')
     websocket = web.WebSocketResponse(heartbeat=30, timeout=5, max_msg_size=1024 * 1024, compress=False)
-    # 在 prepare 的 await 前登记占位，防止并发重连创建两个会话。
     fresh = connection is None
     if fresh:
         connection = FrameworkConnection(websocket, resources=app[RESOURCES_KEY],
             resource_origin=str(request.url.origin()), blobs=app[BLOBS_KEY])
         connection.connection_id = connection_id
+        connection.attached.clear()
         app[SESSIONS_KEY][connection_id] = connection
         app[CONNECTIONS_KEY].add(connection)
-    else:
-        connection.attached.set()
-        if connection.expiry:
-            connection.expiry.cancel()
-        connection.websocket = websocket
-    connection.attaching = True
-    connection.attached.clear()
     current = asyncio.current_task()
     app[HANDLERS_KEY].add(current)
     reader = None
+    old_close = None
     try:
-        await websocket.prepare(request)
-        await websocket.send_json({'command': 'BACKEND_VERSION', 'version': [BACK_VERSION],
-                                   'connectionId': connection_id, 'resumed': not fresh})
-        await websocket.send_json({'command': 'SET_NOWPATH', 'path': '; '.join(app[CONFIG_KEY]['base_dir'])})
-        connection.attached.set()
-        if fresh:
-            connection.worker = asyncio.create_task(dispatch_connection(connection, app, handshake=False))
-        reader = asyncio.create_task(receive_messages(connection))
+        # 握手串行；完成前原传输仍可用。切换后旧 handler 不得清理当前会话。
+        async with connection.attach_lock:
+            if connection.ended or app[STOPPING_KEY].is_set():
+                raise web.HTTPGone(text='Session ended')
+            await websocket.prepare(request)
+            await websocket.send_json({'command': 'BACKEND_VERSION', 'version': [BACK_VERSION],
+                                       'connectionId': connection_id, 'resumed': connection.worker is not None})
+            await websocket.send_json({'command': 'SET_NOWPATH', 'path': '; '.join(app[CONFIG_KEY]['base_dir'])})
+            if connection.ended:
+                return websocket
+            old = connection.websocket
+            connection.websocket = websocket
+            if connection.expiry:
+                connection.expiry.cancel()
+                connection.expiry = None
+            connection.attached.set()
+            if connection.worker is None:
+                connection.worker = asyncio.create_task(dispatch_connection(connection, app, handshake=False))
+            if old is not websocket:
+                old_close = asyncio.create_task(old.close(code=1000, message=b'Transport replaced'))
+            reader = asyncio.create_task(receive_messages(connection, websocket))
         await asyncio.wait((reader, connection.worker), return_when=asyncio.FIRST_COMPLETED)
     finally:
         if reader:
             reader.cancel()
             await asyncio.gather(reader, return_exceptions=True)
-        connection.attached.clear()
+        # 所有会话状态变更必须在关闭 await 之前完成，防止迟到 finally 清理新传输。
+        if connection.websocket is websocket:
+            connection.attached.clear()
+            if connection.ended or app[STOPPING_KEY].is_set() or (connection.worker and connection.worker.done()):
+                await end_session(app, connection)
+            elif connection.worker is None:
+                await end_session(app, connection)
+            else:
+                connection.expiry = asyncio.create_task(expire_session(app, connection))
         await websocket.close()
-        connection.attaching = False
-        if connection.ended or app[STOPPING_KEY].is_set() or (connection.worker and connection.worker.done()):
-            await end_session(app, connection)
-        elif fresh and connection.worker is None:
-            await end_session(app, connection)
-        else:
-            connection.expiry = asyncio.create_task(expire_session(app, connection))
+        if old_close:
+            await asyncio.gather(old_close, return_exceptions=True)
         app[HANDLERS_KEY].discard(current)
     return websocket
 
