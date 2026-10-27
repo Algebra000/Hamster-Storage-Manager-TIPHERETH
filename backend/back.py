@@ -22,6 +22,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 # 用于在 aiohttp Application 对象中存储共享数据
 CONFIG_KEY = web.AppKey('global_config', dict)
 MODULES_KEY = web.AppKey('modules', dict)
+SESSIONS_KEY = web.AppKey('sessions', dict)
 CONNECTIONS_KEY = web.AppKey('connections', set)
 HANDLERS_KEY = web.AppKey('handlers', set)
 STOPPING_KEY = web.AppKey('stopping', asyncio.Event)
@@ -241,6 +242,12 @@ class FrameworkConnection:
 
     def __init__(self, websocket, *, send_timeout=30, resources=None, resource_origin=None, blobs=None):
         self.websocket = websocket
+        self.connection_id = None
+        self.ended = False
+        self.attached = asyncio.Event()
+        self.attached.set()
+        self.expiry = None
+        self.worker = None
         self.resources = resources
         self.resource_origin = resource_origin
         self._blobs = blobs
@@ -258,28 +265,44 @@ class FrameworkConnection:
         if not isinstance(data, (str, bytes, bytearray, memoryview)):
             raise TypeError('send() only accepts text or binary data')
 
+        if self.connection_id:
+            await self.attached.wait()
+            if self.ended:
+                raise ConnectionError('Session ended')
+
         async def write():
             async with self._send_lock:
-                if self.closed:
+                if transport.closed:
                     raise ConnectionError('WebSocket is closed')
                 if isinstance(data, str):
-                    await self.websocket.send_str(data)
+                    await transport.send_str(data)
                 else:
-                    await self.websocket.send_bytes(data)
+                    await transport.send_bytes(data)
 
-        try:
-            # 超时包含等待发送锁的时间；不建立额外的无界发送队列。
-            await asyncio.wait_for(write(), timeout=self.send_timeout)
-        except asyncio.TimeoutError as error:
-            await self.close(code=WSCloseCode.TRY_AGAIN_LATER, reason='Send timeout')
-            raise ConnectionError('WebSocket send timed out') from error
+        while True:
+            transport = self.websocket
+            try:
+                await asyncio.wait_for(write(), timeout=self.send_timeout)
+                return
+            except (asyncio.TimeoutError, ConnectionError, OSError) as error:
+                if isinstance(error, asyncio.TimeoutError):
+                    await transport.close(code=WSCloseCode.TRY_AGAIN_LATER, message=b'Send timeout')
+                if not self.connection_id or self.ended:
+                    raise ConnectionError('WebSocket send failed') from error
+                # 不建立消息缓存；当前发送协程等待传输恢复（最多到会话到期）。
+                while self.websocket is transport and not self.ended:
+                    await asyncio.sleep(0.1)
+                await self.attached.wait()
+                if self.ended:
+                    raise ConnectionError('Session ended')
 
     async def recv(self):
         """由框架唯一的业务消费者调用，网络读取由接入层负责。"""
         return await self.incoming.get()
 
     async def close(self, code=WSCloseCode.OK, reason=''):
-        self._clear_blob_urls()
+        if not self.connection_id:
+            self._clear_blob_urls()
         await self.websocket.close(code=code, message=reason.encode('utf-8'))
 
     def resource_url(self, file_path):
@@ -355,7 +378,11 @@ def load_global_config(path):
         raise ValueError('max-blob-bytes 必须是非负整数')
     if type(http_config.get('tmp-blob-file', False)) is not bool:
         raise ValueError('tmp-blob-file 必须是布尔值')
-    needs_write = 'base-port' not in config or 'http-url-config' not in config
+    timeout = config.get('connect_timeout', 1200)
+    if type(timeout) is not int or timeout <= 0:
+        raise ValueError('connect_timeout 必须是正整数（秒）')
+    needs_write = any(key not in config for key in ('base-port', 'http-url-config', 'connect_timeout'))
+    config.setdefault('connect_timeout', timeout)
     config.setdefault('base-port', port)
     config.setdefault('http-url-config', {
         'max-blob-bytes': 104857600,
@@ -411,19 +438,20 @@ class ModuleManager:
         return self.modules.get(name)
 
 
-async def dispatch_connection(connection, app):
+async def dispatch_connection(connection, app, handshake=True):
     """一个连接只有一个业务消费者，保持模块回调和消息的顺序。"""
     modules = app[MODULES_KEY]
     try:
-        # 首条消息声明支持的前端版本，必须早于路径和模块初始化消息。
-        await connection.send(json.dumps({
-            'command': 'BACKEND_VERSION',
-            'version': [BACK_VERSION],
-        }, ensure_ascii=False))
-        await connection.send(json.dumps({
-            'command': 'SET_NOWPATH',
-            'path': '; '.join(app[CONFIG_KEY]['base_dir']),
-        }, ensure_ascii=False))
+        if handshake:
+            # 首条消息声明支持的前端版本，必须早于路径和模块初始化消息。
+            await connection.send(json.dumps({
+                'command': 'BACKEND_VERSION',
+                'version': [BACK_VERSION],
+            }, ensure_ascii=False))
+            await connection.send(json.dumps({
+                'command': 'SET_NOWPATH',
+                'path': '; '.join(app[CONFIG_KEY]['base_dir']),
+            }, ensure_ascii=False))
         for module in modules.values():
             await module.when_connect(connection)
         while True:
@@ -450,6 +478,14 @@ async def receive_messages(connection):
     # 独立读取网络，以便业务协程等待时仍处理心跳与关闭帧。
     async for message in connection.websocket:
         if message.type == WSMsgType.TEXT:
+            if connection.connection_id:
+                try:
+                    command = json.loads(message.data)
+                except (ValueError, TypeError):
+                    command = None
+                if isinstance(command, dict) and command.get('command') == 'SESSION_DISCONNECT':
+                    connection.ended = True
+                    return
             try:
                 connection.incoming.put_nowait(message.data)
             except asyncio.QueueFull:
@@ -465,6 +501,85 @@ async def receive_messages(connection):
             return
 
 
+async def end_session(app, connection):
+    """仅逻辑会话结束时清理模块及 blob；允许重复调用。"""
+    if app[SESSIONS_KEY].get(connection.connection_id) is not connection:
+        return
+    del app[SESSIONS_KEY][connection.connection_id]
+    connection.ended = True
+    connection.attached.set()
+    if connection.expiry and connection.expiry is not asyncio.current_task():
+        connection.expiry.cancel()
+    if connection.worker:
+        connection.worker.cancel()
+        await asyncio.gather(connection.worker, return_exceptions=True)
+    for name, module in app[MODULES_KEY].items():
+        try:
+            await asyncio.wait_for(module.when_disconnect(connection), 5)
+        except Exception:
+            LOGGER.exception('模块 %s 会话清理失败', name)
+    connection._clear_blob_urls()
+    await connection.close()
+    app[CONNECTIONS_KEY].discard(connection)
+
+
+async def expire_session(app, connection):
+    await asyncio.sleep(app[CONFIG_KEY]['connect_timeout'])
+    await end_session(app, connection)
+
+
+async def resumable_websocket(request, connection_id):
+    app = request.app
+    # 同一 ID 只能有一条活跃传输，避免旧连接抢占新连接或重复分发。
+    connection = app[SESSIONS_KEY].get(connection_id)
+    if connection and getattr(connection, "attaching", False):
+        raise web.HTTPConflict(text='Session already attached')
+    websocket = web.WebSocketResponse(heartbeat=30, timeout=5, max_msg_size=1024 * 1024, compress=False)
+    # 在 prepare 的 await 前登记占位，防止并发重连创建两个会话。
+    fresh = connection is None
+    if fresh:
+        connection = FrameworkConnection(websocket, resources=app[RESOURCES_KEY],
+            resource_origin=str(request.url.origin()), blobs=app[BLOBS_KEY])
+        connection.connection_id = connection_id
+        app[SESSIONS_KEY][connection_id] = connection
+        app[CONNECTIONS_KEY].add(connection)
+    else:
+        connection.attached.set()
+        if connection.expiry:
+            connection.expiry.cancel()
+        connection.websocket = websocket
+    connection.attaching = True
+    connection.attached.clear()
+    current = asyncio.current_task()
+    app[HANDLERS_KEY].add(current)
+    reader = None
+    try:
+        await websocket.prepare(request)
+        await websocket.send_json({'command': 'BACKEND_VERSION', 'version': [BACK_VERSION],
+                                   'connectionId': connection_id, 'resumed': not fresh})
+        await websocket.send_json({'command': 'SET_NOWPATH', 'path': '; '.join(app[CONFIG_KEY]['base_dir'])})
+        connection.attached.set()
+        if fresh:
+            connection.worker = asyncio.create_task(dispatch_connection(connection, app, handshake=False))
+        reader = asyncio.create_task(receive_messages(connection))
+        await asyncio.wait((reader, connection.worker), return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        if reader:
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+        connection.attached.clear()
+        await websocket.close()
+        connection.attaching = False
+        if connection.ended or app[STOPPING_KEY].is_set() or (connection.worker and connection.worker.done()):
+            await end_session(app, connection)
+        elif fresh and connection.worker is None:
+            await end_session(app, connection)
+        else:
+            connection.expiry = asyncio.create_task(expire_session(app, connection))
+        app[HANDLERS_KEY].discard(current)
+    return websocket
+
+
 async def websocket_handler(request):
     """处理 GET /ws：完成升级握手，并管理一个客户端连接的完整生命周期。
 
@@ -478,6 +593,13 @@ async def websocket_handler(request):
     app = request.app
     if app[STOPPING_KEY].is_set():
         raise web.HTTPServiceUnavailable()
+    connection_id = request.query.get('connectionId')
+    if connection_id is not None:
+        try:
+            connection_id = str(uuid.UUID(connection_id))
+        except ValueError:
+            raise web.HTTPBadRequest(text='Invalid connectionId')
+        return await resumable_websocket(request, connection_id)
     # 2. 创建 aiohttp WebSocket 响应对象。此时还没有发送握手响应。
     #    heartbeat：启用 Ping/Pong 存活检测，参数为 30 秒，收到数据会重置计时。
     #    timeout：关闭握手的等待超时（5 秒），不是普通消息接收超时。
@@ -560,6 +682,8 @@ async def stop_connections(app):
     ), return_exceptions=True)
     if app[HANDLERS_KEY]:
         await asyncio.gather(*tuple(app[HANDLERS_KEY]), return_exceptions=True)
+    for connection in tuple(app[SESSIONS_KEY].values()):
+        await end_session(app, connection)
 
 
 async def shutdown_modules(app):
@@ -594,6 +718,7 @@ def create_app(config_path=None, *, modules=None, backend_dir=SCRIPT_DIR):
     app[CONFIG_KEY] = config
     app[MODULES_KEY] = modules
     app[CONNECTIONS_KEY] = set()
+    app[SESSIONS_KEY] = {}
     http_config = config.get('http-url-config', {})
     app[BLOBS_KEY] = BlobStore(http_config.get('max-blob-bytes', 104857600),
                               http_config.get('tmp-blob-file', False),

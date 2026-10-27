@@ -520,7 +520,7 @@
                     else connect();
                 }
             });
-            window.addEventListener('pagehide', () => { closeServerHistory(); disconnect(); });
+            window.addEventListener('pagehide', () => { closeServerHistory(); });
             // 布局模块的顶部预留空间随工具栏高度变化，不改动第三方布局代码。
             new ResizeObserver(() => {
                 mainUI.style.paddingTop = document.getElementById('upbar').offsetHeight + 'px';
@@ -539,6 +539,14 @@
             let ws = null, timer = null, openingTimer = null;
             let stopped = false, connected = false, attempt = 0, generation = 0;
             let messages = Promise.resolve();
+            const connectionBytes = crypto.getRandomValues(new Uint8Array(16));
+            connectionBytes[6] = (connectionBytes[6] & 15) | 64;
+            connectionBytes[8] = (connectionBytes[8] & 63) | 128;
+            const connectionHex = Array.from(connectionBytes, b => b.toString(16).padStart(2, '0')).join('');
+            const connectionId = `${connectionHex.slice(0,8)}-${connectionHex.slice(8,12)}-${connectionHex.slice(12,16)}-${connectionHex.slice(16,20)}-${connectionHex.slice(20)}`;
+            let sessionStarted = false;
+            const transportUrl = new URL(url);
+            transportUrl.searchParams.set('connectionId', connectionId);
             /**
              * 检查管理器是否仍是当前连接管理器且未停止。
              * @returns {boolean}
@@ -558,7 +566,8 @@
              * @returns {void}
              */
             function notifyDisconnect() {
-                if (connected) {
+                if (sessionStarted) {
+                    sessionStarted = false;
                     connected = false;
                     basicEvent.when_disconnect();
                 }
@@ -580,12 +589,13 @@
                 const current = () => active() && id === generation;
                 updateConnectionUI(attempt ? 'retrying' : 'connecting');
                 try {
-                    ws = new WebSocket(url);
+                    ws = new WebSocket(transportUrl.href);
                 } catch (error) {
                     schedule();
                     return;
                 }
                 const transport = ws;
+                let connectedAt = null;
                 transport.binaryType = 'arraybuffer';
                 openingTimer = setTimeout(() => {
                     if (current() && transport.readyState === WebSocket.CONNECTING) transport.close();
@@ -630,7 +640,11 @@
                         }
                         clearTimeout(openingTimer);
                         connected = true; attempt = 0;
-                        basicEvent.when_connect();
+                        connectedAt = Date.now();
+                        if (!sessionStarted) {
+                            sessionStarted = true;
+                            basicEvent.when_connect();
+                        }
                         updateConnectionUI('connected');
                         return;
                     }
@@ -642,11 +656,35 @@
                     // 由 onclose 统一通知断线并安排重连，避免重复回调。
                     if (current()) console.warn('后端连接失败:', url);
                 };
-                transport.onclose = () => {
+                transport.onclose = (event = {}) => {
                     if (!current()) return;
+                    const wasConnected = connected;
+                    const diagnostic = {
+                        time: new Date().toISOString(),
+                        url,
+                        code: event.code ?? null,
+                        reason: event.reason || '',
+                        wasClean: event.wasClean ?? null,
+                        connectedForMs: connectedAt === null ? null : Date.now() - connectedAt
+                    };
+                    console.warn('[WebSocket 断线]', diagnostic);
                     clearTimeout(openingTimer);
-                    notifyDisconnect();
+                    connected = false;
                     schedule();
+                    // 在页面清理之后显示，通知保留 15 秒，便于测试记录。
+                    // 只有已连接会话意外断开才弹通知，避免重试失败反复刷屏。
+                    if (wasConnected && typeof window.frame_show_notice === 'function') {
+                        const duration = Math.round(diagnostic.connectedForMs / 1000);
+                        const clean = diagnostic.wasClean === null ? '未知' : diagnostic.wasClean ? '是' : '否';
+                        const detail = diagnostic.code === 1006 ? '（未收到正常关闭帧，具体原因需结合后端及代理日志）' : '';
+                        try {
+                            window.frame_show_notice(
+                                `连接中断，正在重连。时间：${new Date().toLocaleString()}；关闭码：${diagnostic.code ?? '未知'}${detail}；原因：${diagnostic.reason || '对端未提供'}；正常关闭：${clean}；本次连接持续：${duration} 秒。详细信息见控制台。`,
+                                15000, '#F8D7DA', true, '#842029');
+                        } catch (error) {
+                            console.error('显示断线通知失败:', error);
+                        }
+                    }
                 };
             }
             /**
@@ -661,7 +699,7 @@
                 timer = setTimeout(open, delay);
             }
             const api = {
-                url,
+                url, connectionId,
                 /**
                  * 在当前连接通过版本验证且 WebSocket 已打开时发送数据，不缓存或自动序列化。
                  * @param {string|ArrayBuffer|ArrayBufferView|Blob} data 原生 WebSocket 支持的消息载荷。
@@ -677,6 +715,20 @@
                  */
                 close() {
                     if (stopped) return;
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({command: 'SESSION_DISCONNECT'}));
+                    } else if (sessionStarted) {
+                        // 传输已断时尽力建立一次连接发送结束消息；网络不可达由服务端超时回收。
+                        try {
+                            const ending = new WebSocket(transportUrl.href);
+                            const deadline = setTimeout(() => ending.close(), 5000);
+                            ending.onopen = () => {
+                                ending.send(JSON.stringify({command: 'SESSION_DISCONNECT'}));
+                                ending.close();
+                            };
+                            ending.onclose = () => clearTimeout(deadline);
+                        } catch (error) { console.warn('无法发送主动中断消息:', error); }
+                    }
                     stopped = true; ++generation;
                     clearTimers();
                     notifyDisconnect();
@@ -690,7 +742,7 @@
                 reconnect() {
                     if (socket !== api) return;
                     stopped = false; ++generation;
-                    clearTimers(); notifyDisconnect();
+                    clearTimers(); connected = false;
                     if (ws) ws.close();
                     attempt = 0; open();
                 },
