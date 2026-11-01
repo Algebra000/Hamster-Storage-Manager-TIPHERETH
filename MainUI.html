@@ -24,6 +24,19 @@
         const message_proc_func_list = [];
         const binary_message_proc_func_list = [];
         const onload_func_list = [];
+        const event_handler_list = [];
+        /** 按快照同步广播；参数由事件定义，返回值不截断广播。 */
+        function frame_dispatch_event(event, wParam = null, lParam = null) {
+            if (typeof event !== 'string') throw new TypeError('event 必须是字符串');
+            for (const handler of [...event_handler_list]) {
+                try {
+                    const result = handler(event, wParam, lParam);
+                    if (result && typeof result.then === 'function') {
+                        Promise.resolve(result).catch(error => console.error('异步事件处理失败:', event, error));
+                    }
+                } catch (error) { console.error('事件处理失败:', event, error); }
+            }
+        }
         const VERSION_NAME = "TIPHERETH";
         const VERSION = "1.0.0";
         function get_version()
@@ -547,6 +560,17 @@
             const connectionHex = Array.from(connectionBytes, b => b.toString(16).padStart(2, '0')).join('');
             const connectionId = `${connectionHex.slice(0,8)}-${connectionHex.slice(8,12)}-${connectionHex.slice(12,16)}-${connectionHex.slice(16,20)}-${connectionHex.slice(20)}`;
             let sessionStarted = false;
+            let establishedTransportId = null;
+            let everConnected = false;
+            function emitDisconnected(reason, willReconnect, code = null, detail = '') {
+                connected = false;
+                if (establishedTransportId === null) return;
+                const transportId = establishedTransportId;
+                establishedTransportId = null;
+                frame_dispatch_event('WS_DISCONNECTED', connectionId, Object.freeze({
+                    transportId, url, reason, code, detail, willReconnect
+                }));
+            }
             const transportUrl = new URL(url);
             transportUrl.searchParams.set('connectionId', connectionId);
             /**
@@ -614,13 +638,13 @@
                     if (!current() || !connected) return;
                     if (performance.now() - lastPong >= 3000) {
                         reconnectReason = '心跳超过 3 秒未应答';
-                        connected = false;
-                        open();
+                        emitDisconnected('heartbeat-timeout', true, null, reconnectReason);
+                        if (current()) open();
                         return;
                     }
                     pendingPings.add(++sequence);
                     try { transport.send(JSON.stringify({command:'HEARTBEAT_PING', sequence})); }
-                    catch { reconnectReason = '心跳发送失败'; connected = false; open(); return; }
+                    catch { reconnectReason = '心跳发送失败'; emitDisconnected('send-failure', true, null, reconnectReason); if (current()) open(); return; }
                     heartbeatTimer = setTimeout(heartbeat, 1000);
                 }
                 transport.binaryType = 'arraybuffer';
@@ -674,6 +698,9 @@
                             return;
                         }
                         clearTimeout(openingTimer);
+                        const reconnected = everConnected;
+                        everConnected = true;
+                        establishedTransportId = id;
                         connected = true; attempt = 0;
                         connectedAt = Date.now();
                         lastPong = performance.now();
@@ -684,7 +711,12 @@
                             sessionStarted = true;
                             basicEvent.when_connect();
                         }
+                        if (!current() || !connected) return;
                         updateConnectionUI('connected');
+                        frame_dispatch_event('WS_CONNECTED', connectionId, Object.freeze({
+                            transportId: id, url, reconnected, resumed: data.resumed === true
+                        }));
+                        if (!current() || !connected) return;
                         if (isReconnect) {
                             try {
                                 window.frame_show_notice?.('重新连接成功。', 15000, '#D1E7DD', true, '#0F5132');
@@ -725,8 +757,8 @@
                     console.warn('[WebSocket 断线]', diagnostic);
                     clearTimeout(openingTimer); clearTimeout(heartbeatTimer);
                     reconnectReason = `连接关闭（${diagnostic.code ?? '未知'}）：${diagnostic.reason || '未提供原因'}`;
-                    connected = false;
-                    schedule();
+                    emitDisconnected('transport-close', true, diagnostic.code, diagnostic.reason);
+                    if (current()) schedule();
 
                 };
             }
@@ -757,7 +789,7 @@
                  * 停止本管理器，取消定时器并使旧连接事件失效，必要时通知模块断线并关闭 WebSocket。
                  * @returns {void}
                  */
-                close() {
+                close(reason = 'manual-disconnect') {
                     if (stopped) return;
                     if (ws && ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({command: 'SESSION_DISCONNECT'}));
@@ -775,6 +807,7 @@
                     }
                     stopped = true; ++generation;
                     clearTimers();
+                    emitDisconnected(reason, false);
                     notifyDisconnect();
                     if (ws) ws.close();
                     for (const retired of retiredTransports) retired.close();
@@ -788,7 +821,9 @@
                 reconnect() {
                     if (socket !== api) return;
                     stopped = false; ++generation;
-                    clearTimers(); connected = false;
+                    clearTimers();
+                    emitDisconnected('manual-reconnect', true);
+                    if (!active()) return;
                     if (ws) ws.close();
                     attempt = 0; open();
                 },
@@ -883,7 +918,7 @@
                 addressInput.reportValidity();
                 return;
             }
-            disconnect();
+            disconnect('server-switch');
             addressInput.value = target.address;
             rememberAddress(target.address);
             closeServerHistory();
@@ -895,8 +930,8 @@
          * 主动停止连接和重连计划，清空全局 socket 并将界面恢复为未连接状态。
          * @returns {void}
          */
-        function disconnect() {
-            if (socket) socket.close();
+        function disconnect(reason = 'manual-disconnect') {
+            if (socket) socket.close(reason);
             socket = null;
             updateConnectionUI('disconnected');
         }
