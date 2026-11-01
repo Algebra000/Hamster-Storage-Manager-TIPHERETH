@@ -2558,10 +2558,22 @@ class ClassifyShowerVideo:
             if not sessions:
                 self.video_streams.pop(websocket, None)
 
+    async def align_continuation_start(self, key, ffmpeg_path, video_path, boundary):
+        """从缓冲边界前取关键帧，避免 TS 向前对齐造成接续空洞。"""
+        overlap = 2.0
+        while boundary > overlap:
+            candidate = await self.cached_align_video_keyframe(
+                key, ffmpeg_path, video_path, boundary - overlap)
+            if candidate < boundary - 0.05:
+                return candidate
+            overlap *= 2
+        return 0.0
+
     async def start_video_stream(self, websocket, data):
         widget_id = data.get('widgetId', '')
         requested_start_time = max(0.0, float(data.get('startTime', 0) or 0))
         start_time = requested_start_time
+        continuation = data.get('continuation') is True
         #[DEBUG-START] 视频跳转耗时诊断，release时删掉
         seek_perf = None
         if data.get('command') == 'SEEK_VIDEO_STREAM':
@@ -2677,8 +2689,12 @@ class ClassifyShowerVideo:
                 index_cache_hit = index_state == 'ready'
                 index_error = self.video_keyframe_status.get(cache_key, {}).get('error')
                 #[DEBUG-END]
-                aligned_start_time = await self.cached_align_video_keyframe(
-                    cache_key, ffmpeg_path, video_path, start_time)
+                if continuation:
+                    aligned_start_time = await self.align_continuation_start(
+                        cache_key, ffmpeg_path, video_path, start_time)
+                else:
+                    aligned_start_time = await self.cached_align_video_keyframe(
+                        cache_key, ffmpeg_path, video_path, start_time)
                 if media_info['duration'] > 0:
                     aligned_start_time = min(
                         aligned_start_time, max(0.0, media_info['duration'] - 0.1)
@@ -2708,7 +2724,8 @@ class ClassifyShowerVideo:
             )
             if not is_current():
                 return
-            initial_buffer_until = start_time + self.VIDEO_STREAM_HIGH_WATER_SECONDS
+            initial_buffer_until = (max(start_time, requested_start_time) if continuation
+                                    else start_time) + self.VIDEO_STREAM_HIGH_WATER_SECONDS
             #[DEBUG-START] 视频跳转耗时诊断，release时删掉
             if seek_perf:
                 seek_perf.step('VIDEO_STREAM_READY 发送完成', streamId=stream_id)

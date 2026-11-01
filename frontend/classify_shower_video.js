@@ -1721,6 +1721,10 @@ class CS_VideoPlayerWidget {
         this.restartingStream = false; // 当前是否正在首次建立或 Seek 后重建视频流。
         this.resumeAfterStreamOpen = false; // 新流缓冲完成后是否需要自动恢复播放。
         this.streamFailed = false; // 当前重封装视频流是否已经进入失败状态。
+        this.streamEventHandler = null; // 当前 FFmpeg 播放路径注册的连接事件处理函数。
+        this.streamRecoveryPending = false; // 等待连接恢复或旧分段落入缓冲后申请接续。
+        this.streamContinuation = false; // 正在等待复用现有 SourceBuffer 的新流 READY。
+        this.streamMimeType = null; // 已创建 SourceBuffer 的编码组合。
         this.streamUnsupportedNotice = null; // 不支持视频编码时显示的提示层元素。
     }
 
@@ -3721,6 +3725,24 @@ class CS_VideoPlayerWidget {
         const video = this.player && this.player.video;
         if (!video) return;
 
+        this.streamRecoveryPending = false;
+        this.streamContinuation = false;
+        this.streamEventHandler = (event, connectionId, details) => {
+            if (connectionId !== socket.connectionId || this.streamFailed) return;
+            if (event === 'WS_DISCONNECTED' && details.willReconnect) {
+                if (this.streamEnded) return;
+                // 已收到的分段继续写入；旧传输的迟到消息不再接收。
+                this.streamRecoveryPending = true;
+                this.streamContinuation = false;
+                this.streamRequestId = null;
+                this.activeStreamId = null;
+            } else if (event === 'WS_CONNECTED' && details.reconnected) {
+                if (!this.streamEnded) this.streamRecoveryPending = true;
+                this.recoverRemuxStream();
+            }
+        };
+        event_handler_list.push(this.streamEventHandler);
+
         // NPlayer 的控件忽略 play() 的 Promise；准备期间先保存播放意图。
         const player = this.player;
         const originalPlay = player.play;
@@ -3797,6 +3819,8 @@ class CS_VideoPlayerWidget {
     openRemuxMediaSource(startTime, command) {
         const video = this.player && this.player.video;
         if (!video || !this.currentEpisode) return;
+        this.streamRecoveryPending = !socket.isConnected();
+        this.streamContinuation = false;
         //[DEBUG-START] 视频跳转耗时诊断，release时删掉
         this.clearStreamSeekFrameCallback();
         if (command !== 'SEEK_VIDEO_STREAM') this.streamSeekPerformance = null;
@@ -3830,11 +3854,12 @@ class CS_VideoPlayerWidget {
         const requestId = `${this.widgetId}:stream:${++this.videoPlaybackRequestSerial}`;
         this.streamRequestId = requestId;
         this.mediaSource.addEventListener('sourceopen', () => {
-            if (this.mediaSource !== source || this.currentEpisode?.path !== episodePath) return;
+            if (this.mediaSource !== source || this.currentEpisode?.path !== episodePath
+                || this.streamRequestId !== requestId) return;
             //[DEBUG-START] 视频跳转耗时诊断，release时删掉
             this.recordStreamSeekPerformance('MediaSource 打开，发送跳转请求');
             //[DEBUG-END]
-            this.sendCommand(command, {
+            const sent = this.sendCommand(command, {
                 rootPath: this.rootPath,
                 videoPath: this.currentEpisode.path,
                 startTime: this.streamStartTime,
@@ -3843,7 +3868,46 @@ class CS_VideoPlayerWidget {
                 debugSeekId: this.streamSeekPerformance?.requestId
                 //[DEBUG-END]
             });
+            if (!sent) this.streamRecoveryPending = true;
         }, { once: true });
+    }
+
+    recoverRemuxStream() {
+        const video = this.player?.video;
+        if (!this.streamRecoveryPending || !socket.isConnected() || !video
+            || !this.mediaSource || this.streamFailed) return false;
+        // 先落完断线前收到的数据，不能把队列末尾当成已经可播放的缓冲边界。
+        if (this.sourceBuffer?.updating || this.streamQueue.length) return false;
+        const time = this.restartingStream ? this.streamStartTime : Number(video.currentTime) || 0;
+        const ahead = this.getBufferedAhead(time);
+        if (this.streamSeekPending || !this.sourceBuffer || ahead <= 0) {
+            const resume = this.restartingStream ? this.resumeAfterStreamOpen : !video.paused;
+            this.openRemuxMediaSource(this.streamSeekPending ? video.currentTime : time, 'SEEK_VIDEO_STREAM');
+            this.resumeAfterStreamOpen = resume;
+            return true;
+        }
+        const startTime = time + ahead;
+        if (this.streamDuration > 0 && startTime >= this.streamDuration - 0.05) {
+            this.streamRecoveryPending = false;
+            this.streamEnded = true;
+            this.finishMediaStreamIfPossible();
+            return true;
+        }
+        this.streamRequestId = `${this.widgetId}:stream:${++this.videoPlaybackRequestSerial}`;
+        this.activeStreamId = null;
+        this.streamContinuation = true;
+        this.streamRecoveryPending = false;
+        this.streamEnded = false;
+        this.streamRequestedUntil = 0;
+        const sent = this.sendCommand('START_VIDEO_STREAM', {
+            rootPath: this.rootPath, videoPath: this.currentEpisode.path,
+            startTime, requestId: this.streamRequestId, continuation: true
+        });
+        if (!sent) {
+            this.streamRecoveryPending = true;
+            this.streamContinuation = false;
+        }
+        return true;
     }
 
     showStreamErrorOverlay(message) {
@@ -3878,13 +3942,18 @@ class CS_VideoPlayerWidget {
         }
         this.recordStreamSeekPerformance('收到 VIDEO_STREAM_READY', { streamId: data.streamId });
         //[DEBUG-END]
-        this.streamStartTime = Number(data.startTime) || 0;
+        const continuing = this.streamContinuation;
+        const actualStartTime = Number(data.startTime) || 0;
+        // 接续只改变新数据的时间偏移，保留播放头与首次预缓冲的目标。
+        if (!continuing) this.streamStartTime = actualStartTime;
         this.streamDuration = Number(data.duration) || 0;
         const serverHighWater = Number(data.bufferHighWaterSeconds) || 0;
         if (serverHighWater > this.streamBufferLowWaterSeconds) {
             this.streamBufferHighWaterSeconds = serverHighWater;
         }
-        this.streamRequestedUntil = this.streamStartTime + this.streamBufferHighWaterSeconds;
+        this.streamRequestedUntil = (continuing
+            ? Math.max(actualStartTime, Number(data.requestedStartTime) || 0)
+            : actualStartTime) + this.streamBufferHighWaterSeconds;
         if (this.streamDuration > 0) {
             this.streamRequestedUntil = Math.min(this.streamRequestedUntil, this.streamDuration);
         }
@@ -3892,20 +3961,35 @@ class CS_VideoPlayerWidget {
         console.log('[视频流] 准备播放', {
             mimeType: data.mimeType,
             requestedStartTime: requestedStartTime,
-            startTime: this.streamStartTime,
+            startTime: actualStartTime,
             duration: this.streamDuration,
             prebufferSeconds: this.getStreamPrebufferTarget(),
             lowWaterSeconds: this.streamBufferLowWaterSeconds,
             highWaterSeconds: this.streamBufferHighWaterSeconds
         });
-        if (Math.abs(this.streamStartTime - requestedStartTime) > 0.05) {
+        if (Math.abs(actualStartTime - requestedStartTime) > 0.05) {
             console.log(
                 `[视频流] Seek 已对齐关键帧：${requestedStartTime.toFixed(3)}s -> `
-                + `${this.streamStartTime.toFixed(3)}s`
+                + `${actualStartTime.toFixed(3)}s`
             );
         }
         try {
+            if (continuing) {
+                if (!this.sourceBuffer || this.sourceBuffer.updating
+                    || this.streamMimeType !== data.mimeType
+                    || actualStartTime > requestedStartTime + 0.05) {
+                    const resume = this.restartingStream ? this.resumeAfterStreamOpen : !this.player.video.paused;
+                    this.openRemuxMediaSource(this.player.video.currentTime, 'SEEK_VIDEO_STREAM');
+                    this.resumeAfterStreamOpen = resume;
+                    return;
+                }
+                // 后端回退到关键帧；重叠区交由 MSE 替换，不裁掉解码所需的关键帧。
+                this.sourceBuffer.timestampOffset = actualStartTime;
+                this.streamContinuation = false;
+                return;
+            }
             this.sourceBuffer = this.mediaSource.addSourceBuffer(data.mimeType);
+            this.streamMimeType = data.mimeType;
             this.sourceBuffer.mode = 'segments';
             this.sourceBuffer.timestampOffset = this.streamStartTime;
             const sourceBuffer = this.sourceBuffer;
@@ -3921,6 +4005,7 @@ class CS_VideoPlayerWidget {
                 //[DEBUG-END]
                 this.currentStreamSegment = null;
                 this.setInitialStreamPositionIfReady();
+                if (this.recoverRemuxStream()) return;
                 if (this.trimOldStreamBuffer()) {
                     this.requestMoreStreamData();
                     return;
@@ -4112,7 +4197,7 @@ class CS_VideoPlayerWidget {
     }
 
     requestMoreStreamData(force = false) {
-        if (this.streamSeekPending) return;
+        if (this.streamSeekPending || this.streamRecoveryPending || this.streamContinuation) return;
         const video = this.player && this.player.video;
         if (!video || !this.activeStreamId || this.streamEnded || this.streamFailed) return;
         const playbackTime = this.restartingStream
@@ -4142,6 +4227,7 @@ class CS_VideoPlayerWidget {
     }
 
     trimOldStreamBuffer() {
+        if (this.streamRecoveryPending || this.streamContinuation) return false;
         const video = this.player && this.player.video;
         if (!video || this.restartingStream || this.streamQueue.length > 0
             || !this.sourceBuffer || this.sourceBuffer.updating) return false;
@@ -4193,6 +4279,13 @@ class CS_VideoPlayerWidget {
     }
 
     disposeRemuxStream() {
+        if (this.streamEventHandler) {
+            const index = event_handler_list.indexOf(this.streamEventHandler);
+            if (index !== -1) event_handler_list.splice(index, 1);
+            this.streamEventHandler = null;
+        }
+        this.streamRecoveryPending = false;
+        this.streamContinuation = false;
         this.clearStreamErrorOverlay();
         if (this.player && this.streamOriginalPlayerPlay) {
             this.player.play = this.streamOriginalPlayerPlay;
