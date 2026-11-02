@@ -1671,6 +1671,7 @@ class CS_VideoPlayerWidget {
         //[DEBUG-END]
         this.commentSourceInfoRequestId = ''; // 当前有效的评论来源信息修改请求编号。
         this.commentSourceInfoPending = null; // 来源名称保存失败时用于回滚的待确认修改。
+        this.commentEventHandler = null; // 评论面板的重连事件处理函数。
         this.commentRequestSerial = 0; // 生成评论请求编号的递增序号。
         this.commentSettings = { // 评论面板的可持久化显示设置。
             pageSize: 20,
@@ -1851,6 +1852,8 @@ class CS_VideoPlayerWidget {
         if (typeof binary_message_proc_func_list !== 'undefined') {
             binary_message_proc_func_list.push(this.binaryMessageHandler);
         }
+
+        this.setupCommentConnectionEvents();
 
         // 引入NPlayer库
         this.loadNPlayerScripts();
@@ -2670,34 +2673,18 @@ class CS_VideoPlayerWidget {
         );
     }
 
-    currentCommentMetadataPath() {
-        if (!this.currentEpisode) return '';
-        const path = String(this.currentEpisode.path || '');
-        const root = String(this.rootPath || '').replace(/[\\/]+$/, '');
-        const separator = root.includes('\\') ? '\\' : '/';
-        return `${root}${separator}${path}@meta`;
-    }
-
-    commentResourcePath(source) {
-        const databasePath = String(source && source.databasePath || '');
-        const slashIndex = Math.max(
-            databasePath.lastIndexOf('/'),
-            databasePath.lastIndexOf('\\')
-        );
-        const commentDirectory = slashIndex >= 0
-            ? databasePath.slice(0, slashIndex)
-            : '';
-        const resourceFolder = String(
-            source && source['resource-folder'] || ''
-        ).trim();
-        if (!resourceFolder) return commentDirectory;
-        const isAbsolute = /^[A-Za-z]:[\\/]/.test(resourceFolder)
-            || resourceFolder.startsWith('\\\\')
-            || resourceFolder.startsWith('/');
-        if (isAbsolute) return resourceFolder;
-        const separator = databasePath.includes('\\') ? '\\' : '/';
-        const relativeFolder = resourceFolder.replace(/^[.][\\/]/, '');
-        return `${commentDirectory}${separator}${relativeFolder}`;
+    setupCommentConnectionEvents() {
+        if (this.commentEventHandler) return;
+        if (this.haveComment) {
+            this.commentEventHandler = (event, connectionId, details) => {
+                if (event !== 'WS_CONNECTED' || !details.reconnected
+                    || connectionId !== socket.connectionId || !this.commentExpanded) return;
+                // 已选来源保留当前页及筛选；首次信息请求被中断时重新读取来源。
+                if (this.commentCurrentSource) this.requestCommentHtml();
+                else this.requestCommentInfo();
+            };
+            event_handler_list.push(this.commentEventHandler);
+        }
     }
 
     resetCommentPanelForEpisode(requestImmediately = false) {
@@ -2730,7 +2717,8 @@ class CS_VideoPlayerWidget {
         this.setCommentContent('', '正在读取评论信息…');
         this.sendCommand('CS_GET_COMMENT_INFO', {
             requestId,
-            metadataPath: this.currentCommentMetadataPath()
+            rootPath: this.rootPath,
+            videoPath: this.currentEpisode.path
         });
     }
 
@@ -2919,7 +2907,9 @@ class CS_VideoPlayerWidget {
             this.updateDisplayedCommentSourceName(source);
             const sent = this.sendCommand('CS_SET_COMMENT_SOURCEINFO', {
                 requestId,
-                cmListPath: this.commentInfo && this.commentInfo.cmListPath || '',
+                rootPath: this.rootPath,
+                videoPath: this.currentEpisode.path,
+                sourceFile: source.fileName,
                 bvid: source.bvid || '',
                 key: 'src-name',
                 value: nextName
@@ -3012,11 +3002,9 @@ class CS_VideoPlayerWidget {
         //[DEBUG-END]
         this.sendCommand('CS_GET_COMMENT_HTML', {
             requestId,
-            metadataPath: this.currentCommentMetadataPath(),
-            databasePath: source.databasePath,
-            updateDir: source.updateDir || '',
-            resourcePath: this.commentResourcePath(source),
-            basicResourceFolder: source.basicResourceFolder || 'bilibili-resource',
+            rootPath: this.rootPath,
+            videoPath: this.currentEpisode.path,
+            sourceFile: source.fileName,
             bvid: source.bvid || '',
             sortBy: this.commentSettings.sortBy,
             keywordEnabled: Boolean(keyword),
@@ -3413,6 +3401,11 @@ class CS_VideoPlayerWidget {
 
     /** 清理评论面板仍在执行的动画和 DOM 引用。 */
     disposeCommentPanel() {
+        if (this.commentEventHandler) {
+            const index = event_handler_list.indexOf(this.commentEventHandler);
+            if (index !== -1) event_handler_list.splice(index, 1);
+            this.commentEventHandler = null;
+        }
         clearTimeout(this.commentKeywordTimer);
         this.commentKeywordTimer = null;
         if (this.commentOutsideClickHandler) {

@@ -9,6 +9,10 @@ import sqlite3
 import struct
 import subprocess
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+from urllib.parse import urlsplit
+from urllib.request import url2pathname
 from bisect import bisect_left
 from pathlib import Path
 from typing import Callable, Dict, Optional
@@ -633,46 +637,38 @@ def load_comment_page_from_database(database_path, sort_by, page, page_size,
     }
 
 
-def _comment_file_uri(root, relative_path):
-    relative_path = str(relative_path or "").replace("\\", "/").lstrip("./")
-    # resource_root 在进入评论渲染链路前已经规范化为绝对路径。这里不能再调用
-    # Path.resolve()：对 UNC 路径而言，每个 src 都会触发一次网络文件系统查询。
-    # 纯字符串规范化即可生成同样的 file URI，且不会访问磁盘或网络共享。
-    absolute_path = os.path.abspath(os.path.normpath(
-        os.path.join(os.fspath(root), relative_path)
-    ))
-    return Path(absolute_path).as_uri()
-
-
-def remap_url_to_absolute(url, resource_root, basic_resource_folder):
-    """把单个评论资源 URL 映射成前端可加载的绝对 file URI。"""
-    if not isinstance(url, str):
-        return url
+def remap_url_to_absolute(url, resource_root, basic_resource_folder, resource_url):
+    """本地评论资源经当前连接生成 HTTP(S) 地址，远程资源保持原地址。"""
+    if not isinstance(url, str) or not url:
+        return ''
     normalized = url.replace("\\", "/")
-    for prefix in ("./comment-resource/", "comment-resource/"):
-        if normalized.startswith(prefix):
-            return _comment_file_uri(
-                Path(resource_root) / 'comment-resource',
-                normalized[len(prefix):],
-            )
-    for prefix in ("./bilibili-resource/", "bilibili-resource/"):
-        if normalized.startswith(prefix):
-            return _comment_file_uri(
-                Path(resource_root) / basic_resource_folder,
-                normalized[len(prefix):],
-            )
-    return url
+    if normalized.startswith(('https://', 'http://', 'data:')):
+        return url
+    if normalized.startswith('//'):
+        return 'https:' + normalized
+    if normalized.lower().startswith('file:'):
+        parsed = urlsplit(normalized)
+        local_path = url2pathname(('//' + parsed.netloc if parsed.netloc else '') + parsed.path)
+    else:
+        local_path = normalized
+        for prefix in ('./bilibili-resource/', 'bilibili-resource/'):
+            if normalized.startswith(prefix):
+                local_path = os.path.join(basic_resource_folder, normalized[len(prefix):])
+                break
+        if not os.path.isabs(local_path):
+            local_path = os.path.join(resource_root, local_path)
+    return resource_url(os.path.abspath(os.path.normpath(local_path)))
 
 
-def build_comment_font_style(resource_root, basic_resource_folder):
+def build_comment_font_style(resource_root, basic_resource_folder, resource_url):
     """生成放在 CS_COMMENT_HTML 最前方、路径已重映射的字体声明。"""
     harmony_font = remap_url_to_absolute(
         './bilibili-resource/HarmonyOS-Regular-subset1.woff',
-        resource_root, basic_resource_folder,
+        resource_root, basic_resource_folder, resource_url,
     )
     fans_font = remap_url_to_absolute(
         './bilibili-resource/fans-num.ttf',
-        resource_root, basic_resource_folder,
+        resource_root, basic_resource_folder, resource_url,
     )
     return f'''<style>
         @font-face {{
@@ -705,7 +701,7 @@ css_style_trans_dict = {
 }
 
 def build_avatar_html(avatar_item, base_width, base_height,
-                      resource_root, basic_resource_folder):
+                      resource_root, basic_resource_folder, resource_url):
     if not avatar_item:
         return ""
     
@@ -720,14 +716,14 @@ def build_avatar_html(avatar_item, base_width, base_height,
     
     layers_html = parse_layers(
         layers_data, base_width, base_height,
-        resource_root, basic_resource_folder,
+        resource_root, basic_resource_folder, resource_url,
     )
     
     return f'<div class="avatar-canvas" style="width: {int(canvas_width)}px; height: {int(canvas_height)}px;">{layers_html}</div>'
 
 
 def parse_layers(layers_data, base_width, base_height,
-                 resource_root, basic_resource_folder):
+                 resource_root, basic_resource_folder, resource_url):
     if not layers_data:
         return ""
 
@@ -798,7 +794,7 @@ def parse_layers(layers_data, base_width, base_height,
 
             if img_url:
                 img_url = remap_url_to_absolute(
-                    img_url, resource_root, basic_resource_folder
+                    img_url, resource_root, basic_resource_folder, resource_url
                 )
                 layer_config = layer.get("layer_config", {})
                 tags = layer_config.get("tags", {})
@@ -827,7 +823,7 @@ def parse_layers(layers_data, base_width, base_height,
     return result
 
 
-def render_comment_message(content, resource_root, basic_resource_folder):
+def render_comment_message(content, resource_root, basic_resource_folder, resource_url):
     """只扫描原始正文一次；生成的标签不再参与表情、关键词替换。"""
     message = str(content.get("message", "") or "")
     replacements = {}
@@ -835,7 +831,7 @@ def render_comment_message(content, resource_root, basic_resource_folder):
         if not key:
             continue
         src = remap_url_to_absolute(
-            data.get("url", ""), resource_root, basic_resource_folder,
+            data.get("url", ""), resource_root, basic_resource_folder, resource_url,
         )
         if not src:
             continue
@@ -854,7 +850,7 @@ def render_comment_message(content, resource_root, basic_resource_folder):
         if not key:
             continue
         icon = remap_url_to_absolute(
-            data.get("prefix_icon", ""), resource_root, basic_resource_folder,
+            data.get("prefix_icon", ""), resource_root, basic_resource_folder, resource_url,
         )
         title = data.get("title", "")
         position = data.get("icon_position", 0)
@@ -898,7 +894,7 @@ def render_comment_message(content, resource_root, basic_resource_folder):
     return "".join(parts)
 
 
-def comment_to_comment_html(comment, resource_root, basic_resource_folder,
+def comment_to_comment_html(comment, resource_root, basic_resource_folder, resource_url,
                             mark_deleted=False):
     '''
     将一条评论转换为对应的HTML字符串
@@ -925,33 +921,33 @@ def comment_to_comment_html(comment, resource_root, basic_resource_folder,
         if is_vip else "cs-cmt-v1-username"
     )
     avatar_html = build_avatar_html(
-        avatar_item, 48, 48, resource_root, basic_resource_folder
+        avatar_item, 48, 48, resource_root, basic_resource_folder, resource_url
     )
 
     level_svg = "level_h.svg" if (level == 6 and is_senior_member == 1) else f"level_{level}.svg"
     level_src = remap_url_to_absolute(
         f'./bilibili-resource/{level_svg}',
-        resource_root, basic_resource_folder,
+        resource_root, basic_resource_folder, resource_url,
     )
     like_icon_src = remap_url_to_absolute(
         './bilibili-resource/like.svg',
-        resource_root, basic_resource_folder,
+        resource_root, basic_resource_folder, resource_url,
     )
     dislike_icon_src = remap_url_to_absolute(
         './bilibili-resource/dislike.svg',
-        resource_root, basic_resource_folder,
+        resource_root, basic_resource_folder, resource_url,
     )
 
     pictures = content.get("pictures", []) or []
     message_html = render_comment_message(
-        content, resource_root, basic_resource_folder,
+        content, resource_root, basic_resource_folder, resource_url,
     )
 
 
     pictures_html = ""
     all_srcs = [
         remap_url_to_absolute(
-            pic.get("img_src", ""), resource_root, basic_resource_folder
+            pic.get("img_src", ""), resource_root, basic_resource_folder, resource_url
         )
         for pic in pictures if pic.get("img_src")
     ]
@@ -978,7 +974,7 @@ def comment_to_comment_html(comment, resource_root, basic_resource_folder,
         if cardbg:
             cardbg_image = remap_url_to_absolute(
                 cardbg.get("image", ""),
-                resource_root, basic_resource_folder,
+                resource_root, basic_resource_folder, resource_url,
             )
             cardbg_jump_url = cardbg.get("jump_url", "")
             cardbg_name = cardbg.get("name", "")
@@ -1067,18 +1063,18 @@ def comment_to_comment_html(comment, resource_root, basic_resource_folder,
             )
             reply_avatar_html = build_avatar_html(
                 reply_avatar_item, 36, 36,
-                resource_root, basic_resource_folder,
+                resource_root, basic_resource_folder, resource_url,
             )
 
             reply_level_svg = "level_h.svg" if (reply_level == 6 and reply_is_senior_member == 1) else f"level_{reply_level}.svg"
             reply_level_src = remap_url_to_absolute(
                 f'./bilibili-resource/{reply_level_svg}',
-                resource_root, basic_resource_folder,
+                resource_root, basic_resource_folder, resource_url,
             )
 
             reply_pictures = reply_content.get("pictures", []) or []
             reply_message_html = render_comment_message(
-                reply_content, resource_root, basic_resource_folder,
+                reply_content, resource_root, basic_resource_folder, resource_url,
             )
 
 
@@ -1086,7 +1082,7 @@ def comment_to_comment_html(comment, resource_root, basic_resource_folder,
             reply_all_srcs = [
                 remap_url_to_absolute(
                     pic.get("img_src", ""), resource_root,
-                    basic_resource_folder,
+                    basic_resource_folder, resource_url,
                 )
                 for pic in reply_pictures if pic.get("img_src")
             ]
@@ -1215,6 +1211,9 @@ class ClassifyShowerVideo:
             idle_timeout=1800.0
         )
         self.database_manager = database_manager
+        # SQLite 连接只在此单线程中创建、查询和关闭，不阻塞框架心跳。
+        self.comment_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='cs-comment')
+        self.comment_idle_handle = None
 
     @property
     def config(self):
@@ -3004,14 +3003,84 @@ class ClassifyShowerVideo:
         except (ValueError, TypeError):
             return 0
 
+    def resolve_comment_path(self, path):
+        path = os.path.realpath(os.path.abspath(path))
+        if not any(self.is_path_within(root, path)
+                   for root in self.global_config.get('base_dir', [])):
+            raise ValueError('评论路径不在已配置的资源目录中')
+        return path
+
+    def prepare_comment_request(self, data):
+        """磁盘路径只从当前视频及服务端来源配置取得，不接受前端资源目录。"""
+        video = self.resolve_video_path(data.get('rootPath'), data.get('videoPath'))
+        metadata = self.resolve_comment_path(video + '@meta')
+        directory = self.resolve_comment_path(os.path.join(os.path.dirname(video), '__COMMENT__'))
+        cm_list_path = self.resolve_comment_path(os.path.join(directory, 'cm-list.json'))
+        result = dict(data, metadataPath=metadata, cmListPath=cm_list_path)
+        if data.get('command') == 'CS_GET_COMMENT_INFO':
+            return result
+        cmif_path = self.resolve_comment_path(os.path.join(metadata, 'cmif.json'))
+        cmif = self.read_comment_json(cmif_path, list, [])
+        file_name = str(data.get('sourceFile', ''))
+        source = next((item for item in cmif if isinstance(item, dict)
+                       and item.get('comment-srcfile') == file_name), None)
+        if not source or not re.fullmatch(r'cm\d+\.db', file_name, re.I):
+            raise ValueError('当前视频没有指定的评论来源')
+        cm_list = self.read_comment_json(cm_list_path, dict, {})
+        bvid = str(data.get('bvid', ''))
+        entry = cm_list.get(bvid)
+        if not isinstance(entry, dict) or entry.get('file-name') != file_name:
+            raise ValueError('评论来源与数据库不匹配')
+        database = self.resolve_comment_path(os.path.join(directory, file_name))
+        folder = str(source.get('resource-folder', '') or '').strip()
+        resource = os.path.abspath(os.path.join(directory, folder))
+        update = self.resolve_comment_path(os.path.join(directory, 'update'))
+        result.update(databasePath=database, resourcePath=resource,
+                      basicResourceFolder=source.get('basic-resfolder') or 'bilibili-resource',
+                      updateDir=update if os.path.isdir(update) else '')
+        return result
+
+    def execute_comment_request(self, websocket, data, perf=None):
+        data = self.prepare_comment_request(data)
+        data['_commentConnection'] = websocket.connection_id or id(websocket)
+        if data['command'] == 'CS_GET_COMMENT_INFO':
+            return self.collect_comment_info(data['metadataPath'])
+        if data['command'] == 'CS_SET_COMMENT_SOURCEINFO':
+            return self.set_comment_source_info(data)
+        urls = {}
+        def resource_url(path):
+            # 一页内重复表情、等级图标和头像只校验一次，地址不跨连接缓存。
+            if path not in urls:
+                try:
+                    urls[path] = websocket.resource_url(path)
+                except (OSError, ValueError, RuntimeError, CSResourceHTTPException):
+                    urls[path] = ''
+            return urls[path]
+        return self.build_comment_html_response(data, resource_url, perf=perf)
+
+    async def run_comment_job(self, function, *args):
+        if self.comment_idle_handle is not None:
+            self.comment_idle_handle.cancel()
+            self.comment_idle_handle = None
+        loop = asyncio.get_running_loop()
+        try:
+            return await loop.run_in_executor(self.comment_executor, partial(function, *args))
+        finally:
+            # 关闭也排入同一个线程，避免 SQLite 跨线程使用。
+            if self.comment_idle_handle is not None:
+                self.comment_idle_handle.cancel()
+            self.comment_idle_handle = loop.call_later(
+                self.comment_page_connection_manager.idle_timeout,
+                lambda: self.comment_executor.submit(self.comment_page_connection_manager.close))
+
     def collect_comment_info(self, metadata_path):
         """按 cmif -> cm-list -> 数据库回退顺序组装评论来源信息。"""
         # 重新打开评论面板/切换剧集后，下一页请求重新读取删除列表和统计。
         self.comment_page_connection_manager.query_cache = None
         config = self.get_comment_config()
-        record_path = os.path.join(metadata_path, '__COMMENT-RECORD__.json')
+        record_path = self.resolve_comment_path(os.path.join(metadata_path, '__COMMENT-RECORD__.json'))
         record = self.read_comment_json(record_path, dict, {})
-        cmif_path = os.path.join(metadata_path, 'cmif.json')
+        cmif_path = self.resolve_comment_path(os.path.join(metadata_path, 'cmif.json'))
         comment_dir = os.path.join(os.path.dirname(metadata_path), '__COMMENT__')
         update_dir = os.path.join(comment_dir, 'update')
         cm_list_path = os.path.join(comment_dir, 'cm-list.json')
@@ -3040,7 +3109,7 @@ class ClassifyShowerVideo:
             file_name = str(item.get('comment-srcfile', '')).strip()
             if not re.fullmatch(r'cm\d+\.db', file_name, re.I):
                 continue
-            database_path = os.path.realpath(os.path.join(comment_dir, file_name))
+            database_path = self.resolve_comment_path(os.path.join(comment_dir, file_name))
             if not os.path.isfile(database_path):
                 print(f"[分类展示模块] 跳过不存在的评论数据库: {database_path}")
                 continue
@@ -3214,7 +3283,7 @@ class ClassifyShowerVideo:
             'last-read-page': max(1, int(page)),
             'last-pagecount': min(max(1, int(page_count)), 200),
         }
-        record_path = os.path.join(metadata_path, '__COMMENT-RECORD__.json')
+        record_path = self.resolve_comment_path(os.path.join(metadata_path, '__COMMENT-RECORD__.json'))
         try:
             self.write_comment_json(record_path, record)
             return True
@@ -3222,7 +3291,7 @@ class ClassifyShowerVideo:
             print(f"[分类展示模块] 保存评论阅读记录失败 {record_path}: {error}")
             return False
 
-    def build_comment_html_response(self, data, perf=None):
+    def build_comment_html_response(self, data, resource_url, perf=None):
         metadata_path = str(data.get('metadataPath', '') or '').strip()
         if not metadata_path:
             raise ValueError('缺少视频元数据文件夹路径')
@@ -3278,6 +3347,7 @@ class ClassifyShowerVideo:
             lambda: self.load_comment_deletelist(database_path, update_dir)
         ) if needs_deleted else None
         query_scope = (
+            data.get('_commentConnection'),
             data.get('widgetId', ''),
             CommentPageConnectionManager.normalize_path(metadata_path),
             CommentPageConnectionManager.normalize_path(update_dir) if update_dir else '',
@@ -3300,8 +3370,7 @@ class ClassifyShowerVideo:
         resource_root = str(data.get('resourcePath', '') or '').strip()
         if not resource_root:
             raise ValueError('缺少评论资源根目录路径')
-        # resourcePath 来自 CS_COMMENT_INFO 返回的 resource-folder 计算结果。
-        # 此处仅作不访问文件系统的字符串规范化，不检查其中的目录或资源文件。
+        # resourcePath 由后端按当前视频的 cmif.json 解析；各文件再经框架校验。
         resource_root = os.path.abspath(os.path.normpath(resource_root))
         basic_folder = str(
             data.get('basicResourceFolder') or 'bilibili-resource'
@@ -3311,10 +3380,10 @@ class ClassifyShowerVideo:
             perf.step('资源目录参数处理')
         #[DEBUG-END]
         result['html'] = build_comment_font_style(
-            resource_root, basic_folder
+            resource_root, basic_folder, resource_url
         ) + ''.join(
             comment_to_comment_html(
-                comment, resource_root, basic_folder,
+                comment, resource_root, basic_folder, resource_url,
                 mark_deleted=mark_deleted,
             )
             for comment in result['comments']
@@ -3382,7 +3451,11 @@ class ClassifyShowerVideo:
         self.video_keyframe_cache.clear()
         self.media_probe_cache.clear()
         self.video_repair_metadata_cache.clear()
-        self.comment_page_connection_manager.close()
+        if self.comment_idle_handle is not None:
+            self.comment_idle_handle.cancel()
+        await asyncio.get_running_loop().run_in_executor(
+            self.comment_executor, self.comment_page_connection_manager.close)
+        self.comment_executor.shutdown(wait=True)
 
     async def handle_message(self, websocket, data) -> bool:
         """处理视频、弹幕和评论消息；返回是否已处理。"""
@@ -3552,11 +3625,7 @@ class ClassifyShowerVideo:
             widget_id = data.get('widgetId', '')
             request_id = data.get('requestId', '')
             try:
-                metadata_path = str(data.get('metadataPath', '') or '').strip()
-                if not metadata_path:
-                    raise ValueError('缺少视频元数据文件夹路径')
-                metadata_path = os.path.abspath(os.path.normpath(metadata_path))
-                result = self.collect_comment_info(metadata_path)
+                result = await self.run_comment_job(self.execute_comment_request, websocket, data)
                 message = {
                     'command': 'CS_COMMENT_INFO',
                     'widgetId': widget_id,
@@ -3585,9 +3654,9 @@ class ClassifyShowerVideo:
             perf = CommentPerformanceTrace(request_id) if COMMENT_PERF_DEBUG else None
             #[DEBUG-END]
             try:
-                result = self.build_comment_html_response(data,
+                result = await self.run_comment_job(self.execute_comment_request, websocket, data,
                 #[DEBUG-START] 性能调试代码，release时删掉
-                 perf=perf
+                 perf
                 #[DEBUG-END]
                  )
                 if result['page'] != result['requestedPage']:
@@ -3637,7 +3706,7 @@ class ClassifyShowerVideo:
             widget_id = data.get('widgetId', '')
             request_id = data.get('requestId', '')
             try:
-                result = self.set_comment_source_info(data)
+                result = await self.run_comment_job(self.execute_comment_request, websocket, data)
                 message = {
                     'command': 'CS_COMMENT_SOURCEINFO_SET',
                     'widgetId': widget_id,
