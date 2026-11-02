@@ -9,9 +9,18 @@
         // Leave ordinary browser rendering unchanged.
         if (location.hostname === 'appassets.androidplatform.net') {
             const viewport = document.querySelector('meta[name="viewport"]');
-            const APP_LAYOUT_WIDTH = 1280;
-            // Omit initial-scale=1 so WebView can fit this wider layout to the window.
-            viewport.content = 'width=' + APP_LAYOUT_WIDTH;
+            const APP_LAYOUT_WIDTH = 960;
+            // Java supplies the actual WebView width in density-independent pixels.
+            // Do not derive scale from visualViewport.width: keyboard/focus zoom changes it.
+            window.setAppViewportWidth = function (width) {
+                if (!Number.isFinite(width) || width <= 0) return;
+                const scale = width / APP_LAYOUT_WIDTH;
+                const value = 'width=' + APP_LAYOUT_WIDTH + ', initial-scale=' + scale
+                    + ', minimum-scale=' + scale + ', maximum-scale=' + scale
+                    + ', user-scalable=no';
+                if (viewport.content !== value) viewport.content = value;
+            };
+            window.setAppViewportWidth(window.screen.width);
         }
     </script>
     <!--[APK_END]-->
