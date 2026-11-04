@@ -2331,6 +2331,64 @@ class CS_VideoPlayerWidget {
         const previousButton = modal.querySelector('#cs-prevBtn');
         const nextButton = modal.querySelector('#cs-nextBtn');
 
+        // 触屏手势只处理单指；按钮仍保留原来的点击操作。
+        let touchGesture = null;
+        let suppressTouchClickUntil = 0;
+        modal.style.touchAction = 'none';
+        modal.addEventListener('click', (event) => {
+            if (Date.now() < suppressTouchClickUntil) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
+        }, true);
+        modal.addEventListener('touchstart', (event) => {
+            suppressTouchClickUntil = 0;
+            touchGesture = null;
+            if (event.touches.length !== 1
+                || event.target.closest('.cs-close-btn, .cs-nav-btn')) return;
+            const touch = event.touches[0];
+            touchGesture = {id: touch.identifier, x: touch.clientX, y: touch.clientY,
+                dx: 0, dy: 0, moved: false, zoomed: this.commentPreviewZoomed,
+                translateX: this.commentPreviewTranslateX,
+                translateY: this.commentPreviewTranslateY};
+        }, {passive: true});
+        modal.addEventListener('touchmove', (event) => {
+            if (!touchGesture) return;
+            if (event.touches.length !== 1) {
+                touchGesture = null;
+                suppressTouchClickUntil = Date.now() + 700;
+                return;
+            }
+            const touch = Array.from(event.touches).find(item => item.identifier === touchGesture.id);
+            if (!touch) return;
+            const gesture = touchGesture;
+            gesture.dx = touch.clientX - gesture.x;
+            gesture.dy = touch.clientY - gesture.y;
+            if (Math.hypot(gesture.dx, gesture.dy) >= 10) gesture.moved = true;
+            if (!gesture.moved) return;
+            event.preventDefault();
+            if (gesture.zoomed) {
+                this.commentPreviewTranslateX = gesture.translateX + gesture.dx;
+                this.commentPreviewTranslateY = gesture.translateY + gesture.dy;
+                image.style.transform = `translate(${this.commentPreviewTranslateX}px, ${this.commentPreviewTranslateY}px)`;
+            }
+        }, {passive: false});
+        modal.addEventListener('touchend', (event) => {
+            const gesture = touchGesture;
+            touchGesture = null;
+            if (!gesture?.moved) return;
+            event.preventDefault();
+            suppressTouchClickUntil = Date.now() + 700;
+            if (!gesture.zoomed && Math.abs(gesture.dx) >= 50
+                && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5) {
+                this.navigateCommentImagePreview(gesture.dx < 0 ? 1 : -1);
+            }
+        }, {passive: false});
+        modal.addEventListener('touchcancel', () => {
+            touchGesture = null;
+            suppressTouchClickUntil = Date.now() + 700;
+        });
+
         image.onclick = (event) => {
             event.stopPropagation();
             if (this.commentPreviewDragMoved) {
