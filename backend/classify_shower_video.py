@@ -949,8 +949,9 @@ def comment_to_comment_html(comment, resource_root, basic_resource_folder, resou
         remap_url_to_absolute(
             pic.get("img_src", ""), resource_root, basic_resource_folder, resource_url
         )
-        for pic in pictures if pic.get("img_src")
+        for pic in pictures if isinstance(pic, dict) and isinstance(pic.get("img_src"), str) and pic["img_src"]
     ]
+    all_srcs = [html.escape(src, quote=True) for src in all_srcs if src]
     if len(all_srcs) == 1:
         img_src = all_srcs[0]
         pictures_html = f'\n            <div class="cs-cmt-v1-comment-picture cs-cmt-v1-single"><img src="{img_src}" alt="评论图片" data-cs-cmt-preview></div>'
@@ -1084,8 +1085,9 @@ def comment_to_comment_html(comment, resource_root, basic_resource_folder, resou
                     pic.get("img_src", ""), resource_root,
                     basic_resource_folder, resource_url,
                 )
-                for pic in reply_pictures if pic.get("img_src")
+                for pic in reply_pictures if isinstance(pic, dict) and isinstance(pic.get("img_src"), str) and pic["img_src"]
             ]
+            reply_all_srcs = [html.escape(src, quote=True) for src in reply_all_srcs if src]
             if len(reply_all_srcs) == 1:
                 img_src = reply_all_srcs[0]
                 reply_pictures_html = f'\n                        <div class="cs-cmt-v1-comment-picture cs-cmt-v1-single"><img src="{img_src}" alt="评论图片" data-cs-cmt-preview></div>'

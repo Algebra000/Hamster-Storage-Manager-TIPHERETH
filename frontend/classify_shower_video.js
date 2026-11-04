@@ -2293,7 +2293,9 @@ class CS_VideoPlayerWidget {
                     '.cs-cmt-v1-comment-picture'
                 );
                 const pictures = pictureGroup
-                    ? Array.from(pictureGroup.querySelectorAll('img'))
+                    ? Array.from(pictureGroup.querySelectorAll('img')).filter(
+                        (image) => Boolean(image.getAttribute('src')?.trim())
+                    )
                     : [];
                 const clickedImage = previewTrigger.matches('img')
                     ? previewTrigger
