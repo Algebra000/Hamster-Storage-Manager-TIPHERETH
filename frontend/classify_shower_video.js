@@ -2679,9 +2679,8 @@ class CS_VideoPlayerWidget {
             this.commentEventHandler = (event, connectionId, details) => {
                 if (event !== 'WS_CONNECTED' || !details.reconnected
                     || connectionId !== socket.connectionId || !this.commentExpanded) return;
-                // 已选来源保留当前页及筛选；首次信息请求被中断时重新读取来源。
-                if (this.commentCurrentSource) this.requestCommentHtml();
-                else this.requestCommentInfo();
+                // 查看中的评论保持原样；仅在首次来源信息尚未取得时恢复加载。
+                if (!this.commentCurrentSource && !this.commentInfo) this.requestCommentInfo();
             };
             event_handler_list.push(this.commentEventHandler);
         }
