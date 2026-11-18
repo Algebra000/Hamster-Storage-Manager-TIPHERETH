@@ -206,6 +206,25 @@
     </style>
 
     
+    <style id="task-slot-styles">
+.ui-console{display:flex;flex-direction:column;min-height:150px;height:100%;min-width:0;background:#111c2b;color:#e4edf7;border:1px solid #ced8e5;border-radius:10px;overflow:hidden;font:13px/1.6 Consolas,monospace;box-sizing:border-box}
+.ui-console-output{flex:1;min-height:65px;overflow:auto;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;scrollbar-width:thin;scrollbar-color:#8095ae #182638}
+.ui-console-line{min-height:1.6em}.ui-console-prompt{padding:3px 10px;color:#d1e5fc;white-space:pre-wrap}.ui-console-form{display:flex;gap:8px;padding:8px;margin:0;border-top:1px solid #35475e}
+.ui-console-input{min-width:0;flex:1;background:#1c2c42;color:#fff;border:1px solid #6a809a;border-radius:5px;padding:6px 8px;font:inherit}.ui-console-send,.ui-console-new{border:1px solid #6a809a;border-radius:5px;padding:5px 10px;background:#294f77;color:#fff;cursor:pointer}
+.ui-console-error{color:#ffc3c3;padding:0 10px;font-family:inherit}.ui-console-error:empty{display:none}.ui-console-new{align-self:center;font-size:12px}.ui-console [hidden]{display:none!important}.ui-console button:disabled,.ui-console input:disabled{opacity:.5;cursor:default}
+#upbar{grid-template-columns:130px auto minmax(80px,1fr) auto minmax(190px,260px) auto auto}
+#taskSlotButton{position:relative;display:flex;align-items:center;justify-content:center;min-width:38px;width:38px;height:36px;border:1px solid #b8cddd;background:#f5faff;border-radius:8px;cursor:pointer;color:#315474}
+#taskSlotButton svg{width:22px;height:22px}#taskInputCount{position:absolute;right:-7px;top:-7px;border-radius:10px;padding:0 4px;font-size:11px;background:#ba5622;color:white;min-width:10px}
+.task-popover{position:fixed;z-index:1050;display:flex;flex-direction:column;gap:10px;padding:14px;box-sizing:border-box;border:1px solid #c6d5e5;border-radius:12px;background:#f6f9fe;box-shadow:0 10px 35px #142b4940;overflow:auto;color:#20344b}
+.task-popover[hidden]{display:none}.task-stat{font-size:14px;line-height:1.6}.task-cards{display:flex;gap:12px;overflow-x:auto;overflow-y:hidden;min-height:135px;padding:8px 2px;scrollbar-width:thin;scrollbar-color:#8fa7be #e4edf5}
+.task-card{position:relative;flex:0 0 180px;box-sizing:border-box;padding:38px 14px 12px;border:1px solid #d6e0ed;border-radius:10px;background:#fff;box-shadow:0 2px 7px #233d5810;display:flex;flex-direction:column;gap:10px;justify-content:center;overflow-wrap:anywhere}
+.task-card strong{text-align:center;font-size:15px}.task-card small{color:#637589}.task-badge{position:absolute;top:8px;right:8px;background:#788593;border-radius:5px;color:white;padding:2px 7px;font-size:11px}
+.task-badge.running{background:#2373a0}.task-badge.paused{background:#9a6929}.task-badge.failed,.task-badge.blocked{background:#b84646}.task-badge.queued{background:#6c7c8c}
+.task-row,.task-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.task-actions{justify-content:flex-end}.task-button,.task-page select,.task-request-select{border:1px solid #b9cadb;background:#fff;color:#274667;padding:7px 12px;border-radius:7px;font:inherit;cursor:pointer;max-width:100%}.task-button:hover{background:#e4eef9}.task-button:disabled{opacity:.4;cursor:default}.task-danger{color:#9b3636}
+.task-empty{padding:25px 8px;color:#73859a;align-self:center}.task-console-wrap{flex:1;min-height:150px;display:flex;flex-direction:column;gap:5px;min-width:0}.task-console-host{flex:1;min-height:140px}.task-request-select{width:100%;font-size:12px}.task-page{box-sizing:border-box;overflow:auto;padding:82px 28px 28px!important;color:#21364e}
+.task-page h2{margin:0 0 18px}.task-deck{display:grid;grid-template-columns:32px minmax(0,1fr) 32px;gap:8px;align-items:center;margin-bottom:20px}.task-viewport{overflow:hidden;border:1px solid #d1dce8;border-radius:12px;background:#eef3fa;padding:12px 0}.task-slides{display:flex;transition:transform .25s ease}.task-slide{flex:0 0 100%;min-width:0;padding:0 16px;box-sizing:border-box}.task-bottom{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,3fr);gap:20px;height:360px;min-height:250px}.task-add{font-size:18px;padding:22px;align-self:start}.task-add span:first-child{font-size:30px;margin-right:8px}.task-disconnected{color:#a74932;margin:6px 0}.task-dialog{border:1px solid #bfd0e0;border-radius:12px;max-width:min(430px,90vw);padding:24px;color:#243d57;box-shadow:0 15px 60px #10243b55}.task-dialog::backdrop{background:#182e4855}.task-dialog label{display:block;margin:12px 0}.task-dialog input,.task-dialog select{display:block;width:100%;box-sizing:border-box;margin-top:5px;padding:8px;border:1px solid #bbccdc;border-radius:5px}.task-dialog .task-actions{margin-top:18px}.task-dialog-error{color:#ab3939}
+@media(max-width:800px){#upbar{grid-template-columns:auto minmax(0,1fr) auto auto}#taskSlotButton{grid-column:4;grid-row:2}.task-page{padding:75px 10px 15px!important}.task-bottom{grid-template-columns:1fr;height:auto}.task-bottom .task-console-wrap{height:340px}.task-add{padding:10px}.task-card{flex-basis:160px}.task-deck{gap:2px;grid-template-columns:25px minmax(0,1fr) 25px}}
+    </style>
 </head>
 <body>
     <div id = 'backpaper'>
@@ -962,6 +981,349 @@
         };
 
         
+    </script>
+    <script id="ui-console">
+/* Generic text console: no sockets, queue IDs, task IDs or framework dependencies. */
+(() => {
+    'use strict';
+    const encoder = new TextEncoder();
+    let serial = 0;
+    const palette = ['#202020','#c62828','#2e7d32','#967000','#1565c0','#8e24aa','#00838f','#e0e0e0',
+        '#777777','#ff5252','#69b86b','#ffd54f','#64b5f6','#ce93d8','#4dd0e1','#ffffff'];
+    const defaultOptions = {maxLines:1000,maxLineBytes:16384,ansi:true,autoScroll:true,
+        inputEnabled:false,prompt:'',placeholder:'请输入内容',maxInputBytes:16384,onInput:null};
+    function element(tag, className, content) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (content !== undefined) node.textContent = content;
+        return node;
+    }
+    function checkText(value) { if (typeof value !== 'string') throw new TypeError('必须为字符串'); return value; }
+    function cut(value, max) {
+        if (encoder.encode(value).length <= max) return value;
+        let result = '', length = 0;
+        for (const c of value) { const n = encoder.encode(c).length; if (length+n > max) break; result+=c; length+=n; }
+        return result+'…[已截断]';
+    }
+    function renderText(node, value, ansi) {
+        node.replaceChildren();
+        const state = {};
+        let plain = '';
+        const flush = () => {
+            if (!plain) return;
+            const span = element('span', '', plain);
+            Object.assign(span.style, state);
+            node.appendChild(span); plain = '';
+        };
+        for (let i=0;i<value.length;) {
+            const c = value[i++];
+            if (c !== '\x1b') { if (c >= ' ' || c === '\t') plain += c; continue; }
+            flush();
+            if (value[i] === '[') {
+                i++;
+                let params='', final='';
+                for (let count=0;i<value.length && count<64;count++) {
+                    const next=value[i++];
+                    if (next >= '@' && next <= '~') { final=next; break; }
+                    params+=next;
+                }
+                if (ansi && final==='m' && /^[0-9;]*$/.test(params)) {
+                    const codes=(params || '0').split(';').map(Number);
+                    for (const code of codes) {
+                        if (code===0) { for (const k of Object.keys(state)) delete state[k]; }
+                        else if (code===1) state.fontWeight='bold';
+                        else if (code===22) delete state.fontWeight;
+                        else if (code>=30 && code<=37) state.color=palette[code-30];
+                        else if (code>=90 && code<=97) state.color=palette[code-90+8];
+                        else if (code===39) delete state.color;
+                        else if (code>=40 && code<=47) state.backgroundColor=palette[code-40];
+                        else if (code>=100 && code<=107) state.backgroundColor=palette[code-100+8];
+                        else if (code===49) delete state.backgroundColor;
+                    }
+                }
+            } else if (value[i]===']') {
+                // Discard OSC payload, including hyperlinks and window-title commands.
+                i++;
+                while (i<value.length && value[i]!=='\x07' && !(value[i]==='\x1b' && value[i+1]==='\\')) i++;
+                if (value[i]==='\x1b') i+=2; else if (i<value.length) i++;
+            } else if (i<value.length) i++;
+        }
+        flush();
+    }
+    class consoleDiv {
+        constructor(container, options={}) {
+            if (!container || typeof container.appendChild!=='function') throw new TypeError('container 必须为 DOM 元素');
+            if (!options || typeof options!=='object' || Array.isArray(options)) throw new TypeError('options 必须为对象');
+            for (const key of Object.keys(options)) if (!(key in defaultOptions)) throw new TypeError('未知选项：'+key);
+            this.options={...defaultOptions,...options};
+            for (const key of ['maxLines','maxLineBytes','maxInputBytes']) {
+                if (typeof this.options[key]!=='number') throw new TypeError(key+' 必须为整数');
+                if (!Number.isSafeInteger(this.options[key]) || this.options[key]<=0) throw new RangeError(key+' 必须为正整数');
+            }
+            for (const key of ['ansi','autoScroll','inputEnabled']) if (typeof this.options[key]!=='boolean') throw new TypeError(key+' 必须为布尔值');
+            for (const key of ['prompt','placeholder']) checkText(this.options[key]);
+            if (this.options.onInput!==null && typeof this.options.onInput!=='function') throw new TypeError('onInput 必须为函数');
+            this.rows=[];this.partial=null;this.destroyed=false;this.busy=false;this.editVersion=0;
+            this.prefix='ui-console-'+(++serial)+'-';this.counter=0;this.cr=false;this.stylePrefix='';
+            this.root=element('div','ui-console');
+            this.output=element('div','ui-console-output');this.output.tabIndex=0;this.output.setAttribute('aria-label','控制台输出');
+            this.newOutput=element('button','ui-console-new','有新输出 ↓');this.newOutput.type='button';this.newOutput.hidden=true;
+            this.label=element('label','ui-console-prompt',this.options.prompt);
+            this.form=element('form','ui-console-form');
+            this.input=element('input','ui-console-input');this.input.type='text';this.input.autocomplete='off';this.input.spellcheck=false;
+            this.input.placeholder=this.options.placeholder;this.input.setAttribute('aria-label',this.options.prompt || '控制台输入');
+            this.label.htmlFor=this.input.id=this.prefix+'input';
+            this.send=element('button','ui-console-send','发送');this.send.type='submit';
+            this.error=element('div','ui-console-error');this.error.setAttribute('role','status');
+            this.form.append(this.input,this.send);this.root.append(this.output,this.newOutput,this.label,this.form,this.error);container.appendChild(this.root);
+            this.onScroll=()=>{if(this._atBottom())this.newOutput.hidden=true;};
+            this.onJump=()=>{this.output.scrollTop=this.output.scrollHeight;this.newOutput.hidden=true;};
+            this.onEdit=()=>{this.editVersion++;};
+            this.onSubmit=e=>{e.preventDefault();this._submit();};
+            this.onKey=e=>{if(e.key==='Enter' && (e.isComposing || e.keyCode===229))e.preventDefault();};
+            this.output.addEventListener('scroll',this.onScroll);this.newOutput.addEventListener('click',this.onJump);
+            this.input.addEventListener('input',this.onEdit);this.input.addEventListener('keydown',this.onKey);this.form.addEventListener('submit',this.onSubmit);
+            this._enabled();
+        }
+        _atBottom(){return this.output.scrollHeight-this.output.clientHeight-this.output.scrollTop<24;}
+        _enabled(){const disabled=this.destroyed || !this.options.inputEnabled || !this.options.onInput || this.busy;this.input.disabled=disabled;this.send.disabled=disabled;this.send.textContent=this.busy?'发送中…':'发送';}
+        _row(textValue,id){checkText(textValue);if(/[\r\n]/.test(textValue))throw new TypeError('行正文不能含换行');return {id,text:cut(textValue,this.options.maxLineBytes)};}
+        _paint(){
+            if(this.destroyed)return;
+            const follow=this._atBottom(); const oldTop=this.output.scrollTop, oldHeight=this.output.scrollHeight;
+            while(this.rows.length>this.options.maxLines)this.rows.shift();
+            const fragment=document.createDocumentFragment();
+            for(const row of this.rows){const line=element('div','ui-console-line');renderText(line,row.text,this.options.ansi);if(!line.childNodes.length)line.textContent='\u200b';fragment.appendChild(line);}
+            this.output.replaceChildren(fragment);
+            if(this.options.autoScroll && follow){this.output.scrollTop=this.output.scrollHeight;this.newOutput.hidden=true;}
+            else {this.output.scrollTop=Math.max(0,oldTop-(oldHeight>this.output.scrollHeight?oldHeight-this.output.scrollHeight:0));this.newOutput.hidden=false;}
+        }
+        setLines(lines){
+            if(!Array.isArray(lines))throw new TypeError('lines 必须为数组');
+            const ids=new Set();const rows=lines.map(r=>{checkText(r.id);if(ids.has(r.id))throw new TypeError('重复行标识');ids.add(r.id);return this._row(r.text,r.id);});
+            this.rows=rows;this.partial=null;this.cr=false;this.stylePrefix='';this._paint();
+        }
+        appendLine(value,id){
+            if(id===undefined)id=this.prefix+(++this.counter);checkText(id);
+            if(this.rows.some(r=>r.id===id))throw new TypeError('重复行标识');
+            const row=this._row(value,id);this.partial=null;this.rows.push(row);this._paint();return id;
+        }
+        replaceLine(id,value){checkText(id);const row=this.rows.find(r=>r.id===id);if(!row)return false;row.text=this._row(value,id).text;this._paint();return true;}
+        write(value){
+            checkText(value);if(this.destroyed)return;
+            for(const c of value){
+                if(c==='\n' && this.cr){this.cr=false;continue;}
+                if(c==='\r' || c==='\n'){
+                    if(!this.partial){this.partial={id:this.prefix+(++this.counter),text:this.stylePrefix};this.rows.push(this.partial);}
+                    const sgrs=this.partial.text.match(/\x1b\[[0-9;]*m/g)||[];
+                    for(const sgr of sgrs){if(sgr==='\x1b[0m' || sgr==='\x1b[m')this.stylePrefix='';else this.stylePrefix=(this.stylePrefix+sgr).slice(-256);}
+                    this.partial=null;this.cr=c==='\r';continue;
+                }
+                this.cr=false;
+                if(!this.partial){this.partial={id:this.prefix+(++this.counter),text:this.stylePrefix,truncated:false};this.rows.push(this.partial);}
+                if(!this.partial.truncated){const next=this.partial.text+c;if(encoder.encode(next).length>this.options.maxLineBytes){this.partial.text=cut(next,this.options.maxLineBytes);this.partial.truncated=true;}else this.partial.text=next;}
+            }
+            this._paint();
+        }
+        setInputEnabled(enabled){if(typeof enabled!=='boolean')throw new TypeError('必须为布尔值');this.options.inputEnabled=enabled;this._enabled();}
+        setPrompt(value){this.options.prompt=checkText(value);this.label.textContent=value;this.input.setAttribute('aria-label',value||'控制台输入');}
+        getInputValue(){return this.input.value;}
+        setInputValue(value){this.input.value=checkText(value);this.editVersion++;}
+        focusInput(){if(this.input.disabled || this.destroyed)return false;this.input.focus();return true;}
+        clearView(){this.rows=[];this.partial=null;this.cr=false;this.stylePrefix='';this._paint();}
+        async _submit(){
+            if(this.destroyed || this.busy || !this.options.inputEnabled || !this.options.onInput)return;
+            const value=this.input.value;
+            if(/[\r\n\0]/.test(value) || encoder.encode(value).length>this.options.maxInputBytes){this.error.textContent='请输入不含换行的文字，且不超过 '+this.options.maxInputBytes+' 字节。';return;}
+            const version=this.editVersion;this.busy=true;this.error.textContent='';this._enabled();
+            try {await this.options.onInput(value);if(!this.destroyed && this.editVersion===version)this.setInputValue('');}
+            catch(error){if(!this.destroyed)this.error.textContent=error?.message || '发送失败，请重试。';}
+            finally {if(!this.destroyed){this.busy=false;this._enabled();}}
+        }
+        destroy(){
+            if(this.destroyed)return;this.destroyed=true;
+            this.output.removeEventListener('scroll',this.onScroll);this.newOutput.removeEventListener('click',this.onJump);
+            this.input.removeEventListener('input',this.onEdit);this.input.removeEventListener('keydown',this.onKey);this.form.removeEventListener('submit',this.onSubmit);
+            this.root.remove();this.rows=[];
+        }
+    }
+    window.consoleDiv=consoleDiv;
+})();
+    </script>
+    <script id="task-slot">
+/* Task-slot application adapter. The generic console never sees this protocol. */
+(() => {
+    'use strict';
+    const views=new Set(), pending=new Map(), notices=new Map(), seen=new Set(), drafts=new Map();
+    let snapshot={queues:[],tasks:[],schedules:[],inputs:[],revision:0,stats:{main_tasks:0,queues:1,running:0}};
+    let connected=false,epoch=0,sequence=0,refreshing=false,dirty=false,button,popover,stats,cards;
+    const names={queued:'排队中',running:'执行中',paused:'暂停中',failed:'异常终止',active:'已计划',blocked:'无法触发'};
+    function el(tag,cls,value){const n=document.createElement(tag);if(cls)n.className=cls;if(value!==undefined)n.textContent=value;return n;}
+    function btn(label,fn,cls=''){const b=el('button','task-button '+cls,label);b.type='button';b.addEventListener('click',fn);return b;}
+    function errorNotice(error){window.frame_show_notice?.(error?.message || String(error),6000,'#F8D7DA',true,'#842029');}
+    function request(command,data={}){
+        if(!connected || !socket?.isConnected())return Promise.reject(new Error('后端连接已断开'));
+        const request_id='task-'+epoch+'-'+(++sequence);
+        return new Promise((resolve,reject)=>{
+            const timer=setTimeout(()=>{pending.delete(request_id);reject(new Error('请求超时，请刷新后确认实际状态'));},35000);
+            pending.set(request_id,{resolve,reject,timer});
+            if(!socket.send(JSON.stringify({command,request_id,...data}))){clearTimeout(timer);pending.delete(request_id);reject(new Error('消息发送失败'));}
+        });
+    }
+    async function action(command,data){try{const result=await request(command,data);await refresh();return result;}catch(e){errorNotice(e);throw e;}}
+    function safeAction(command,data){action(command,data).catch(()=>{});}
+    function setConnected(value){
+        connected=value;epoch++;refreshing=false;dirty=false;
+        for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('连接已变更，请确认操作状态'));}pending.clear();
+        if(!value){for(const n of notices.values())n?.close();notices.clear();snapshot={queues:[],tasks:[],schedules:[],inputs:[],revision:0,stats:{main_tasks:0,queues:1,running:0}};}
+        for(const v of views){v.cursor=null;v.reading=false;v.version++;v.console?.setInputEnabled(false);}
+        render();if(value)refresh();
+    }
+    async function refresh(){
+        if(!connected)return;
+        if(refreshing){dirty=true;return;}
+        refreshing=true;const generation=epoch;
+        try{
+            do{dirty=false;const next=await request('TASK_GET_SNAPSHOT');if(generation!==epoch)return;
+                if(next.revision>=snapshot.revision){snapshot=next;render();reconcileNotices();}
+                for(const v of views)loadLogs(v);
+            }while(dirty && connected && generation===epoch);
+        }catch(e){if(connected && generation===epoch)errorNotice(e);}
+        finally{if(generation===epoch)refreshing=false;}
+    }
+    function reconcileNotices(){
+        const live=new Set(snapshot.inputs.map(r=>r.input_id));
+        for(const [id,n]of notices)if(!live.has(id)){n?.close();notices.delete(id);}
+        for(const r of snapshot.inputs){if(seen.has(r.input_id))continue;seen.add(r.input_id);
+            const q=snapshot.queues.find(q=>q.queue_id===r.queue_id);
+            notices.set(r.input_id,window.frame_show_notice?.(`任务“${r.task_name}”等待输入，请在“${q?.name || '对应队列'}”的控制台回答。`,0,'#FFE69A',true,'#5C4300'));
+        }
+        while(seen.size>2048)seen.delete(seen.values().next().value);
+        for(const id of drafts.keys())if(!live.has(id))drafts.delete(id);
+    }
+    async function loadLogs(view){
+        if(!connected || view.dead)return;
+        if(view.reading){view.logDirty=true;return;}
+        view.reading=true;const generation=epoch,version=view.version,qid=view.queue;
+        try{
+            do{view.logDirty=false;
+                const data=await request('TASK_READ_LOGS',{queue_id:qid,after_seq:view.cursor});
+                if(generation!==epoch || version!==view.version || view.dead)return;
+                let reset=false;
+                if(data.mode==='snapshot')view.console.setLines(data.entries.map(r=>({id:r.row_id,text:r.text})));
+                else for(const r of data.entries){if(r.op==='replace'){if(!view.console.replaceLine(r.row_id,r.text)){reset=true;view.logDirty=true;break;}}else view.console.appendLine(r.text,r.row_id);}
+                view.cursor=reset?null:data.next_seq;
+                if(data.mode==='delta' && data.entries.length===1000)view.logDirty=true;
+            }while(view.logDirty && connected && version===view.version);
+        }catch(e){if(generation===epoch && version===view.version && !view.dead && e.code!=='QueueNotFound')view.status.textContent=e.message;}
+        finally{if(generation===epoch && version===view.version)view.reading=false;}
+    }
+    function attachConsole(host,qid){
+        const wrap=el('div','task-console-wrap'),status=el('div','task-disconnected'),select=el('select','task-request-select'),consoleHost=el('div','task-console-host');
+        select.setAttribute('aria-label','选择等待回答的任务');wrap.append(status,select,consoleHost);host.appendChild(wrap);
+        const view={wrap,status,select,host:consoleHost,queue:qid,cursor:null,reading:false,version:0,inputId:null,console:null,dead:false};
+        function create(){view.console=new consoleDiv(consoleHost,{maxLines:1000,inputEnabled:false,onInput:async value=>{
+            const input=snapshot.inputs.find(r=>r.input_id===view.inputId && r.queue_id===view.queue);
+            if(!input)throw new Error('输入请求已结束');
+            const generation=epoch;drafts.set(input.input_id,value);
+            try{await request('TASK_INPUT_SUBMIT',{queue_id:input.queue_id,task_id:input.task_id,input_id:input.input_id,text:value});drafts.delete(input.input_id);}
+            catch(e){if(generation===epoch)refresh();throw e;}
+            if(generation===epoch)refresh();
+        }});}
+        create();views.add(view);
+        select.addEventListener('change',()=>{if(view.inputId)drafts.set(view.inputId,view.console.getInputValue());view.inputId=select.value || null;updateInput(view);});
+        view.switchQueue=q=>{
+            if(q===view.queue)return;
+            if(view.inputId)drafts.set(view.inputId,view.console.getInputValue());
+            view.queue=q;view.version++;view.cursor=null;view.reading=false;view.inputId=null;view.console.destroy();create();updateInput(view);loadLogs(view);
+        };
+        view.destroy=()=>{if(view.inputId)drafts.set(view.inputId,view.console.getInputValue());view.dead=true;view.version++;view.console.destroy();views.delete(view);wrap.remove();};
+        updateInput(view);loadLogs(view);return view;
+    }
+    function updateInput(v){
+        const requests=snapshot.inputs.filter(r=>r.queue_id===v.queue),old=v.inputId;
+        if(!requests.some(r=>r.input_id===v.inputId))v.inputId=requests[0]?.input_id || null;
+        v.select.replaceChildren();for(const r of requests){const o=el('option','',r.task_name+' · '+r.prompt);o.value=r.input_id;v.select.appendChild(o);}v.select.value=v.inputId || '';v.select.hidden=requests.length<2;
+        const input=requests.find(r=>r.input_id===v.inputId),task=snapshot.tasks.find(t=>t.task_id===input?.task_id);
+        if(old!==v.inputId)v.console.setInputValue(drafts.get(v.inputId)||'');
+        v.console.setPrompt(!connected?'后端连接已断开':input ? `${input.task_name}：${input.prompt}${task?.state!=='running'?'（恢复后可回答）':''}`:'当前没有任务等待输入');
+        v.console.setInputEnabled(connected && !!input && task?.state==='running' && !task?.cancel_requested && !task?.pause_requested);
+        v.status.textContent=connected?'':'后端连接已断开，任务仍由服务器管理。';
+    }
+    function card(task,controls=false,plan=false){
+        const c=el('div','task-card');const badge=el('span','task-badge '+task.state,names[task.state]||task.state);c.appendChild(badge);
+        c.appendChild(el('strong','',task.name));
+        if(plan){c.appendChild(el('small','',task.next_run_at?new Date(task.next_run_at).toLocaleString():'无法触发'));c.appendChild(el('small','',task.entries.map(e=>e.name).join(' → ')));}
+        if(controls){if(!plan)c.appendChild(el('small','',new Date(task.created_at).toLocaleString()));
+            if(task.waiting_for_input)c.appendChild(el('small','','等待控制台输入'));
+            if(task.error)c.appendChild(el('small','task-danger',task.error));
+            const row=el('div','task-actions');
+            if(plan){row.append(btn('更改',()=>editSchedule(task)),btn('删除',()=>{if(window.confirm('删除此定时计划及尚未触发的任务？'))safeAction('TASK_SCHEDULE_DELETE',{schedule_id:task.schedule_id,expected_revision:task.revision});},'task-danger'));}
+            else{const resume=task.state==='paused'||task.pause_requested;
+                const pause=btn(task.cancel_requested?'正在终止':task.pause_requested?'正在暂停':resume?'恢复':'暂停',()=>safeAction(resume?'TASK_RESUME':'TASK_PAUSE',{task_id:task.task_id}));
+                pause.disabled=!connected||task.cancel_requested||task.state==='failed'||(!resume&&!task.can_pause);
+                const cancel=btn('终止',()=>{if(window.confirm('确认终止任务“'+task.name+'”？'))safeAction('TASK_CANCEL',{task_id:task.task_id});},'task-danger');cancel.disabled=!connected||task.cancel_requested;row.append(pause,cancel);}
+            for(const b of row.children)if(!connected)b.disabled=true;
+            c.appendChild(row);
+        }
+        return c;
+    }
+    function fillCards(host,items,controls,plan){host.replaceChildren();if(!items.length)host.appendChild(el('div','task-empty',connected?'暂无任务':'等待连接后端'));else for(const t of items)host.appendChild(card(t,controls,plan));}
+    function render(){
+        if(!button)return;
+        const n=snapshot.inputs.length,badge=document.getElementById('taskInputCount');badge.textContent=String(n);badge.hidden=!n;
+        stats.textContent=`主队列有 ${snapshot.stats.main_tasks} 个任务\n当前有 ${snapshot.stats.queues} 个队列\n正执行 ${snapshot.stats.running} 个任务`;
+        fillCards(cards,snapshot.tasks.filter(t=>t.queue_id==='main'),false,false);
+        for(const v of views){updateInput(v);v.render?.();}
+    }
+    function editSchedule(plan){
+        const d=el('dialog','task-dialog'),form=el('form'),title=el('h3','','更改定时设置');
+        const type=el('select');for(const [value,label]of [['once','单次'],['interval','固定间隔']]){const o=el('option','',label);o.value=value;type.appendChild(o);}type.value=plan.timing.type;
+        const date=el('input');date.type='datetime-local';date.step='1';
+        const current=new Date(plan.next_run_at || Date.now()+3600000);date.value=new Date(current.getTime()-current.getTimezoneOffset()*60000).toISOString().slice(0,19);
+        const seconds=el('input');seconds.type='number';seconds.min='1';seconds.value=String(plan.timing.seconds||3600);
+        for(const [label,control]of [['触发类型',type],['首次/单次触发时间',date],['间隔秒数',seconds]]){const l=el('label','',label);l.appendChild(control);form.appendChild(l);}
+        const error=el('div','task-dialog-error');const row=el('div','task-actions'),save=btn('保存',()=>{}),cancel=btn('取消',()=>d.close());save.type='submit';row.append(cancel,save);form.prepend(title);form.append(error,row);d.appendChild(form);document.body.appendChild(d);
+        type.addEventListener('change',()=>seconds.disabled=type.value==='once');seconds.disabled=type.value==='once';
+        form.addEventListener('submit',async e=>{e.preventDefault();const stamp=new Date(date.value);if(!Number.isFinite(stamp.getTime())||stamp<=new Date()){error.textContent='请选择未来的时间';return;}
+            const timing=type.value==='once'?{type:'once',run_at:stamp.toISOString()}:{type:'interval',start_at:stamp.toISOString(),seconds:Number(seconds.value)};
+            save.disabled=true;try{await request('TASK_SCHEDULE_UPDATE',{schedule_id:plan.schedule_id,expected_revision:plan.revision,timing});d.close();refresh();}catch(e){error.textContent=e.message;}finally{save.disabled=false;}});
+        d.addEventListener('close',()=>d.remove(),{once:true});d.showModal();
+    }
+    function openPage(){
+        popover.hidden=true;button.setAttribute('aria-expanded','false');
+        const page=new_page();page.classList.add('task-page');createBackButtons(page);page.appendChild(el('h2','','计划任务管理'));
+        const deck=el('div','task-deck'),left=btn('‹',()=>flip(0)),right=btn('›',()=>flip(1)),viewport=el('div','task-viewport'),slides=el('div','task-slides'),current=el('div','task-slide'),scheduled=el('div','task-slide');
+        const header=el('div','task-row'),select=el('select');select.setAttribute('aria-label','查看队列');header.append(el('strong','','当前状态槽'),el('span','','队列'),select);const list=el('div','task-cards'),plans=el('div','task-cards');current.append(header,list);scheduled.append(el('strong','','定时任务槽'),plans);slides.append(current,scheduled);viewport.appendChild(slides);deck.append(left,viewport,right);page.appendChild(deck);
+        const bottom=el('div','task-bottom'),side=el('div'),host=el('div','task-console-wrap');
+        const add=btn('',()=>{const blank=new_page();createBackButtons(blank);},'task-add');
+        add.append(el('span','','+'),el('span','','新建任务'));
+        side.append(add,btn('清空日志',()=>safeAction('TASK_CLEAR_LOGS',{queue_id:view.queue})));
+        bottom.append(side,host);page.appendChild(bottom);const view=attachConsole(host,'main');
+        select.addEventListener('change',()=>{view.switchQueue(select.value);view.render();});
+        view.render=()=>{if(!snapshot.queues.some(q=>q.queue_id===view.queue))view.switchQueue('main');select.replaceChildren();for(const q of snapshot.queues){const count=snapshot.inputs.filter(r=>r.queue_id===q.queue_id).length;const o=el('option','',q.name+(count?` · ${count} 项等待输入`:''));o.value=q.queue_id;select.appendChild(o);}select.value=view.queue;select.disabled=!connected;fillCards(list,snapshot.tasks.filter(t=>t.queue_id===view.queue),true,false);fillCards(plans,snapshot.schedules,true,true);};
+        let slide=0,startX=0,startY=0;function flip(index){slide=index;slides.style.transform=`translateX(-${slide*100}%)`;left.disabled=slide===0;right.disabled=slide===1;}flip(0);
+        viewport.addEventListener('touchstart',e=>{startX=e.changedTouches[0].clientX;startY=e.changedTouches[0].clientY;},{passive:true});viewport.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-startX,dy=e.changedTouches[0].clientY-startY;if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)&&!e.target.closest('.task-cards'))flip(dx<0?1:0);},{passive:true});
+        page.cleanFuncList.push(()=>view.destroy());view.render();
+    }
+    function positionPopover(){if(!popover || popover.hidden)return;const rect=button.getBoundingClientRect();const width=Math.min(400,window.innerWidth*.4),top=Math.min(rect.bottom+8,Math.max(8,window.innerHeight-120));Object.assign(popover.style,{width:width+'px',height:Math.min(600,window.innerHeight-top-8)+'px',top:top+'px',left:Math.max(0,Math.min(rect.right-width,window.innerWidth-width))+'px'});}
+    function init(){
+        button=el('button');button.id='taskSlotButton';button.type='button';button.setAttribute('aria-label','计划任务');button.setAttribute('aria-expanded','false');
+        const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d','M4 4h16v16H4z M8 2v4 M16 2v4 M4 9h16 M8 13h3 M8 16h7');path.setAttribute('fill','none');path.setAttribute('stroke','currentColor');path.setAttribute('stroke-width','1.6');svg.appendChild(path);button.appendChild(svg);
+        const count=el('span');count.id='taskInputCount';count.hidden=true;button.appendChild(count);document.getElementById('upbar').appendChild(button);
+        popover=el('section','task-popover');popover.hidden=true;popover.setAttribute('aria-label','计划任务简报');stats=el('div','task-stat');stats.style.whiteSpace='pre-line';cards=el('div','task-cards');popover.append(stats,cards);document.body.appendChild(popover);attachConsole(popover,'main');const footer=el('div','task-actions');footer.append(btn('清空日志',()=>safeAction('TASK_CLEAR_LOGS',{queue_id:'main'})),btn('详细信息',openPage));popover.appendChild(footer);
+        button.addEventListener('click',()=>{popover.hidden=!popover.hidden;button.setAttribute('aria-expanded',String(!popover.hidden));positionPopover();});
+        document.addEventListener('click',e=>{if(!popover.hidden && !popover.contains(e.target)&&!button.contains(e.target)){popover.hidden=true;button.setAttribute('aria-expanded','false');}});
+        document.addEventListener('keydown',e=>{if(e.key==='Escape'){popover.hidden=true;button.setAttribute('aria-expanded','false');}});window.addEventListener('resize',positionPopover);
+        render();
+    }
+    onload_func_list.push(init);when_connect_func_list.push(()=>setConnected(true));when_disconnect_func_list.push(()=>setConnected(false));
+    message_proc_func_list.push(data=>{
+        if(data.command==='TASK_RESULT'){const p=pending.get(data.request_id);if(!p)return;pending.delete(data.request_id);clearTimeout(p.timer);if(data.ok)p.resolve(data.data);else p.reject(Object.assign(new Error(data.error?.message||'操作失败'),{code:data.error?.code}));return;}
+        if(data.command==='TASK_CHANGED' || data.command==='TASK_INPUT_REQUEST' || data.command==='TASK_INPUT_RESOLVED'){if(data.resync)for(const v of views)v.cursor=null;refresh();}
+        if(data.command==='TASK_LOGS' || data.command==='TASK_LOGS_CLEARED'){for(const v of views)if(v.queue===data.queue_id){if(data.command==='TASK_LOGS_CLEARED')v.cursor=null;loadLogs(v);}}
+    });
+})();
     </script>
 </body>
 </html>

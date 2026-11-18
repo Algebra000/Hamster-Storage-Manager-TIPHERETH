@@ -12,6 +12,11 @@ import tempfile
 import uuid
 from urllib.parse import quote
 
+# Keep package imports identical when launched as a standalone backend script.
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from backend.backapi import TaskManager, TaskBridge, install_task_manager
+
 from aiohttp import web, WSMsgType, WSCloseCode
 
 DEFAULT_PORT = 8768
@@ -28,6 +33,8 @@ HANDLERS_KEY = web.AppKey('handlers', set)
 STOPPING_KEY = web.AppKey('stopping', asyncio.Event)
 RESOURCES_KEY = web.AppKey('resources', object)
 BLOBS_KEY = web.AppKey('blobs', object)
+TASKS_KEY = web.AppKey('tasks', object)
+TASK_BRIDGE_KEY = web.AppKey('task_bridge', object)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -453,6 +460,7 @@ async def dispatch_connection(connection, app, handshake=True):
                 'command': 'SET_NOWPATH',
                 'path': '; '.join(app[CONFIG_KEY]['base_dir']),
             }, ensure_ascii=False))
+        app[TASK_BRIDGE_KEY].ready.add(connection)
         for module in modules.values():
             await module.when_connect(connection)
         while True:
@@ -465,6 +473,8 @@ async def dispatch_connection(connection, app, handshake=True):
                 await connection.close(code=WSCloseCode.INVALID_TEXT,
                                        reason='Expected a JSON object')
                 return
+            if await app[TASK_BRIDGE_KEY].handle(connection, data):
+                continue
             for module in modules.values():
                 await module.message_proc(connection, data)
     except ConnectionError:
@@ -531,6 +541,7 @@ async def end_session(app, connection):
     connection._clear_blob_urls()
     await connection.close()
     app[CONNECTIONS_KEY].discard(connection)
+    app[TASK_BRIDGE_KEY].forget(connection)
 
 
 async def expire_session(app, connection):
@@ -684,6 +695,7 @@ async def websocket_handler(request):
         finally:
             # 11. 即使关闭操作失败，也移除登记，避免共享集合残留失效连接/任务。
             app[CONNECTIONS_KEY].discard(connection)
+            app[TASK_BRIDGE_KEY].forget(connection)
             connection._clear_blob_urls()
             app[HANDLERS_KEY].discard(current)
     # 12. 将已经处理完的 WebSocketResponse 返回给 aiohttp，结束路由处理。
@@ -727,6 +739,8 @@ def create_app(config_path=None, *, modules=None, backend_dir=SCRIPT_DIR):
         else:
             LOGGER.warning('根目录不存在: %s', real_path)
     config = {**config, 'base_dir': roots}
+    task_manager = TaskManager(backend_dir)
+    install_task_manager(task_manager)
     if modules is None:
         modules = ModuleManager(config, backend_dir).modules
     app = web.Application(middlewares=[resource_cors])
@@ -735,6 +749,8 @@ def create_app(config_path=None, *, modules=None, backend_dir=SCRIPT_DIR):
     app[CONFIG_KEY] = config
     app[MODULES_KEY] = modules
     app[CONNECTIONS_KEY] = set()
+    app[TASKS_KEY] = task_manager
+    app[TASK_BRIDGE_KEY] = TaskBridge(task_manager, app[CONNECTIONS_KEY])
     app[SESSIONS_KEY] = {}
     http_config = config.get('http-url-config', {})
     app[BLOBS_KEY] = BlobStore(http_config.get('max-blob-bytes', 104857600),
@@ -753,7 +769,16 @@ def create_app(config_path=None, *, modules=None, backend_dir=SCRIPT_DIR):
     app.router.add_get('/blobs/{token}/{data_name}', blob_handler)
     app.router.add_get('/resources/{root_id}/{relative_path:.*}', resource_handler)
     app.on_response_prepare.append(prepare_resource_headers)
+    async def start_tasks(app):
+        install_task_manager(app[TASKS_KEY])
+        await app[TASK_BRIDGE_KEY].start()
+
+    async def stop_tasks(app):
+        await app[TASK_BRIDGE_KEY].stop()
+
+    app.on_startup.append(start_tasks)
     app.on_shutdown.append(stop_connections)
+    app.on_cleanup.append(stop_tasks)
     app.on_cleanup.append(shutdown_modules)
     return app
 
