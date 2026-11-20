@@ -280,30 +280,36 @@ if (typeof when_connect_func_list !== 'undefined') {
 }
 
 // 注册到 when_disconnect_func_list
+// Render the initial offline state without dispatching session teardown callbacks.
+function classifyShowerShowDisconnected() {
+    console.log('分类展示模块：连接断开');
+    // 连接断开时的逻辑
+    const block = get_block(CLASSIFY_SHOWER_JS_MODULE_INDEX);
+    if (!block) {
+        console.error('分类展示模块：无法获取分配的区域');
+        return;
+    }
+    // 清空区域内容
+    block.innerHTML = '';
+    // 添加未连接提示
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = 'classify-shower-unconnected-div';
+    loadingDiv.className = 'loading';
+    loadingDiv.textContent = '⛔ 未连接后端，请检查服务是否启动';
+    loadingDiv.style.color = '#999';
+    loadingDiv.style.fontSize = '14px';
+    loadingDiv.style.flex = '1';
+    loadingDiv.style.display = 'flex';
+    loadingDiv.style.justifyContent = 'center';
+    loadingDiv.style.alignItems = 'center';
+    block.appendChild(loadingDiv);
+}
+
+if (typeof onload_func_list !== 'undefined') {
+    onload_func_list.push(classifyShowerShowDisconnected);
+}
 if (typeof when_disconnect_func_list !== 'undefined') {
-    when_disconnect_func_list.push(function() {
-        console.log('分类展示模块：连接断开');
-        // 连接断开时的逻辑
-        const block = get_block(CLASSIFY_SHOWER_JS_MODULE_INDEX);
-        if (!block) {
-            console.error('分类展示模块：无法获取分配的区域');
-            return;
-        }
-        // 清空区域内容
-        block.innerHTML = '';
-        // 添加未连接提示
-        const loadingDiv = document.createElement('div');
-        loadingDiv.id = 'treemap-unconnected-div';
-        loadingDiv.className = 'loading';
-        loadingDiv.textContent = '⛔ 未连接后端，请检查服务是否启动';
-        loadingDiv.style.color = '#999';
-        loadingDiv.style.fontSize = '14px';
-        loadingDiv.style.flex = '1';
-        loadingDiv.style.display = 'flex';
-        loadingDiv.style.justifyContent = 'center';
-        loadingDiv.style.alignItems = 'center';
-        block.appendChild(loadingDiv);
-    });
+    when_disconnect_func_list.push(classifyShowerShowDisconnected);
 }
 
 

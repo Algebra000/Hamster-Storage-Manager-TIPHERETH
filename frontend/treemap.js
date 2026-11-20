@@ -1239,39 +1239,45 @@ if (typeof message_proc_func_list !== 'undefined') {
     });
 }
 
-if (typeof when_disconnect_func_list !== 'undefined') {
-    when_disconnect_func_list.push(function() {
-        // 清空树状图容器，但保留菜单栏
-        const treeMapContainer = get_block(TREEMAP_JS_MODULE_INDEX);
-        if (treeMapContainer) {
-            // 保存菜单栏
-            const menuBar = treeMapContainer.querySelector('.treemap-menu');
-            
-            // 清空容器内容
-            treeMapContainer.innerHTML = '';
-            
-            // 重新添加菜单栏（如果存在）
-            if (menuBar) {
-                treeMapContainer.appendChild(menuBar);
-                // 隐藏菜单栏
-                menuBar.style.display = 'none';
-            }
-            
-            // 添加未连接提示
-            const loadingDiv = document.createElement('div');
-            loadingDiv.id = 'treemap-unconnected-div';
-            loadingDiv.className = 'loading';
-            loadingDiv.textContent = '⛔ 未连接后端，请检查服务是否启动';
-            loadingDiv.style.color = '#999';
-            loadingDiv.style.fontSize = '14px';
-            loadingDiv.style.flex = '1';
-            loadingDiv.style.display = 'flex';
-            loadingDiv.style.justifyContent = 'center';
-            loadingDiv.style.alignItems = 'center';
-            treeMapContainer.appendChild(loadingDiv);
-            treemap_have_content = false;
+// Render the initial offline state without dispatching session teardown callbacks.
+function treemapShowDisconnected() {
+    // 清空树状图容器，但保留菜单栏
+    const treeMapContainer = get_block(TREEMAP_JS_MODULE_INDEX);
+    if (treeMapContainer) {
+        // 保存菜单栏
+        const menuBar = treeMapContainer.querySelector('.treemap-menu');
+
+        // 清空容器内容
+        treeMapContainer.innerHTML = '';
+
+        // 重新添加菜单栏（如果存在）
+        if (menuBar) {
+            treeMapContainer.appendChild(menuBar);
+            // 隐藏菜单栏
+            menuBar.style.display = 'none';
         }
-    });
+
+        // 添加未连接提示
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'treemap-unconnected-div';
+        loadingDiv.className = 'loading';
+        loadingDiv.textContent = '⛔ 未连接后端，请检查服务是否启动';
+        loadingDiv.style.color = '#999';
+        loadingDiv.style.fontSize = '14px';
+        loadingDiv.style.flex = '1';
+        loadingDiv.style.display = 'flex';
+        loadingDiv.style.justifyContent = 'center';
+        loadingDiv.style.alignItems = 'center';
+        treeMapContainer.appendChild(loadingDiv);
+        treemap_have_content = false;
+    }
+}
+
+if (typeof onload_func_list !== 'undefined') {
+    onload_func_list.push(treemapShowDisconnected);
+}
+if (typeof when_disconnect_func_list !== 'undefined') {
+    when_disconnect_func_list.push(treemapShowDisconnected);
 }
 
 if (typeof when_connect_func_list !== 'undefined') {

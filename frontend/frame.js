@@ -342,6 +342,8 @@ if (typeof window !== 'undefined') {
 }
 
 // 区域状态和回调函数
+// Session lifetime is separate from the current WebSocket transport status.
+let frameSessionActive = false;
 let block_show_list = [false, false, false, false];
 let when_show_callback_list = [null, null, null, null];
 let when_hide_callback_list = [null, null, null, null];
@@ -582,11 +584,15 @@ function pop_page(num) {
     // 如果回到根页面，显示upbar
     if (current_page_index === 0 && upbar) {
         upbar.style.display = '';
-        // 执行所有固定区域的活跃回调函数
-        for (let i = 0; i < BLOCK_COUNT; i++) {
-            if (when_show_callback_list[i]) {
-                when_show_callback_list[i]();
-                block_show_list[i] = true;
+        // Returning offline must preserve module placeholders; a temporary transport
+        // loss keeps the logical session active and retains normal activation.
+        if (frameSessionActive) {
+            // 执行所有固定区域的活跃回调函数
+            for (let i = 0; i < BLOCK_COUNT; i++) {
+                if (when_show_callback_list[i]) {
+                    when_show_callback_list[i]();
+                    block_show_list[i] = true;
+                }
             }
         }
     } else if (upbar) {
@@ -601,6 +607,7 @@ function pop_page(num) {
 // 连接成功时激活所有固定区域对应模块
 if (typeof when_connect_func_list !== 'undefined'){
     when_connect_func_list.push(() => {
+        frameSessionActive = true;
         for (let i = 0; i < BLOCK_COUNT; i++) {
             if (when_show_callback_list[i]) {
                 when_show_callback_list[i]();
@@ -614,6 +621,8 @@ if (typeof when_connect_func_list !== 'undefined'){
 // 断开连接时弹出所有页面
 if (typeof when_disconnect_func_list !== 'undefined'){
     when_disconnect_func_list.push(() => {
+        frameSessionActive = false;
+        block_show_list.fill(false);
         pop_page(page_stack.length - 1);
         }
     );
