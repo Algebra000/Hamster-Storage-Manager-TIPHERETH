@@ -18,6 +18,7 @@ if __package__ in (None, ''):
 from backend.backapi import TaskManager, TaskBridge, install_task_manager
 
 from aiohttp import web, WSMsgType, WSCloseCode
+from aiohttp import web_fileresponse
 
 DEFAULT_PORT = 8768
 BACK_VERSION = 'TIPHERETH 1.0.0'
@@ -36,6 +37,42 @@ BLOBS_KEY = web.AppKey('blobs', object)
 TASKS_KEY = web.AppKey('tasks', object)
 TASK_BRIDGE_KEY = web.AppKey('task_bridge', object)
 LOGGER = logging.getLogger(__name__)
+
+
+class ResourceFileResponse(web.FileResponse):
+    """保留 aiohttp 的 Range 处理，限制 Windows 原生文件发送的单次长度。"""
+
+    SENDFILE_BLOCK_SIZE = 64 * 1024 * 1024
+
+    async def _sendfile(self, request, fobj, offset, count):
+        if sys.platform != 'win32':
+            return await super()._sendfile(request, fobj, offset, count)
+
+        # FileResponse.prepare 已计算整个响应的长度；不能逐块调用父类
+        # _sendfile，因为它会在第一块发送后写入 EOF。
+        writer = await web.StreamResponse.prepare(self, request)
+        assert writer is not None
+        if web_fileresponse.NOSENDFILE or self.compression:
+            return await self._sendfile_fallback(writer, fobj, offset, count)
+        transport = request.transport
+        if transport is None:
+            raise ConnectionResetError('Connection lost')
+        loop = asyncio.get_running_loop()
+        while count > 0:
+            # TransmitFile 单次上限为 2 GiB - 2；Python 3.8 的 asyncio
+            # 却允许接近 4 GiB，会触发 WinError 87。使用有界发送规避。
+            block_size = min(count, self.SENDFILE_BLOCK_SIZE)
+            try:
+                sent = await loop.sendfile(transport, fobj, offset, block_size)
+            except NotImplementedError:
+                # 已发出的块不能重发，只回退发送剩余部分。
+                return await self._sendfile_fallback(writer, fobj, offset, count)
+            if sent <= 0:
+                raise OSError('File ended before the declared response length')
+            offset += sent
+            count -= sent
+        await web.StreamResponse.write_eof(self)
+        return writer
 
 
 class ResourceRegistry:
@@ -159,7 +196,7 @@ async def resource_handler(request):
     }
     if target.suffix.lower() in media_types:
         headers['Content-Type'] = media_types[target.suffix.lower()]
-    return web.FileResponse(target, headers=headers)
+    return ResourceFileResponse(target, headers=headers)
 
 
 class BlobStore:
@@ -238,7 +275,7 @@ async def blob_handler(request):
     if request.match_info['data_name'] != data_name:
         raise web.HTTPNotFound()
     if path is not None:
-        return web.FileResponse(path, headers={'Content-Type': content_type,
+        return ResourceFileResponse(path, headers={'Content-Type': content_type,
                                               'Cache-Control': 'no-store'})
     return web.Response(body=data, content_type=content_type,
                         headers={'Cache-Control': 'no-store'})
