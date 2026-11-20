@@ -209,9 +209,9 @@
     <style id="task-slot-styles">
 .ui-console{display:flex;flex-direction:column;min-height:150px;height:100%;min-width:0;background:#111c2b;color:#e4edf7;border:1px solid #ced8e5;border-radius:10px;overflow:hidden;font:13px/1.6 Consolas,monospace;box-sizing:border-box}
 .ui-console-output{flex:1;min-height:65px;overflow:auto;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;scrollbar-width:thin;scrollbar-color:#8095ae #182638}
-.ui-console-line{min-height:1.6em}.ui-console-prompt{padding:3px 10px;color:#d1e5fc;white-space:pre-wrap}.ui-console-form{display:flex;gap:8px;padding:8px;margin:0;border-top:1px solid #35475e}
-.ui-console-input{min-width:0;flex:1;background:#1c2c42;color:#fff;border:1px solid #6a809a;border-radius:5px;padding:6px 8px;font:inherit}.ui-console-send,.ui-console-new{border:1px solid #6a809a;border-radius:5px;padding:5px 10px;background:#294f77;color:#fff;cursor:pointer}
-.ui-console-error{color:#ffc3c3;padding:0 10px;font-family:inherit}.ui-console-error:empty{display:none}.ui-console-new{align-self:center;font-size:12px}.ui-console [hidden]{display:none!important}.ui-console button:disabled,.ui-console input:disabled{opacity:.5;cursor:default}
+.ui-console-line{min-height:1.6em}.ui-console-prompt{display:block;margin:0;color:#a6bdd5;white-space:pre-wrap;font:inherit}.ui-console-prompt:empty{display:none}.ui-console-form{display:flex;align-items:baseline;gap:8px;padding:0;margin:0;min-height:1.6em;line-height:inherit}.ui-console-marker{flex:none;color:#8fc7ff;user-select:none}.ui-console-form[aria-busy="true"] .ui-console-marker{color:#73859a}
+.ui-console-input{display:block;min-width:0;flex:1;width:0;box-sizing:border-box;background:transparent;color:inherit;border:0;border-radius:0;outline:none;padding:0;margin:0;font:inherit;line-height:inherit;caret-color:#a5d2ff;box-shadow:none}.ui-console-input:focus{outline:none;box-shadow:none}.ui-console-input::placeholder{color:#788ca3}.ui-console-new{border:1px solid #6a809a;border-radius:5px;padding:5px 10px;background:#294f77;color:#fff;cursor:pointer}
+.ui-console-error{color:#ffc3c3;padding:0;font-family:inherit}.ui-console-error:empty{display:none}.ui-console-new{align-self:center;font-size:12px}.ui-console [hidden]{display:none!important}.ui-console button:disabled,.ui-console input:disabled{opacity:.5;cursor:default}
 #upbar{grid-template-columns:130px auto minmax(80px,1fr) auto minmax(190px,260px) auto auto}
 #taskSlotButton{position:relative;display:flex;align-items:center;justify-content:center;min-width:38px;width:38px;height:36px;border:1px solid #b8cddd;background:#f5faff;border-radius:8px;cursor:pointer;color:#315474}
 #taskSlotButton svg{width:22px;height:22px}#taskInputCount{position:absolute;right:-7px;top:-7px;border-radius:10px;padding:0 4px;font-size:11px;background:#ba5622;color:white;min-width:10px}
@@ -221,9 +221,30 @@
 .task-card strong{text-align:center;font-size:15px}.task-card small{color:#637589}.task-badge{position:absolute;top:8px;right:8px;background:#788593;border-radius:5px;color:white;padding:2px 7px;font-size:11px}
 .task-badge.running{background:#2373a0}.task-badge.paused{background:#9a6929}.task-badge.failed,.task-badge.blocked{background:#b84646}.task-badge.queued{background:#6c7c8c}
 .task-row,.task-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.task-actions{justify-content:flex-end}.task-button,.task-page select,.task-request-select{border:1px solid #b9cadb;background:#fff;color:#274667;padding:7px 12px;border-radius:7px;font:inherit;cursor:pointer;max-width:100%}.task-button:hover{background:#e4eef9}.task-button:disabled{opacity:.4;cursor:default}.task-danger{color:#9b3636}
-.task-empty{padding:25px 8px;color:#73859a;align-self:center}.task-console-wrap{flex:1;min-height:150px;display:flex;flex-direction:column;gap:5px;min-width:0}.task-console-host{flex:1;min-height:140px}.task-request-select{width:100%;font-size:12px}.task-page{box-sizing:border-box;overflow:auto;padding:82px 28px 28px!important;color:#21364e}
-.task-page h2{margin:0 0 18px}.task-deck{display:grid;grid-template-columns:32px minmax(0,1fr) 32px;gap:8px;align-items:center;margin-bottom:20px}.task-viewport{overflow:hidden;border:1px solid #d1dce8;border-radius:12px;background:#eef3fa;padding:12px 0}.task-slides{display:flex;transition:transform .25s ease}.task-slide{flex:0 0 100%;min-width:0;padding:0 16px;box-sizing:border-box}.task-bottom{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,3fr);gap:20px;height:360px;min-height:250px}.task-add{font-size:18px;padding:22px;align-self:start}.task-add span:first-child{font-size:30px;margin-right:8px}.task-disconnected{color:#a74932;margin:6px 0}.task-dialog{border:1px solid #bfd0e0;border-radius:12px;max-width:min(430px,90vw);padding:24px;color:#243d57;box-shadow:0 15px 60px #10243b55}.task-dialog::backdrop{background:#182e4855}.task-dialog label{display:block;margin:12px 0}.task-dialog input,.task-dialog select{display:block;width:100%;box-sizing:border-box;margin-top:5px;padding:8px;border:1px solid #bbccdc;border-radius:5px}.task-dialog .task-actions{margin-top:18px}.task-dialog-error{color:#ab3939}
-@media(max-width:800px){#upbar{grid-template-columns:auto minmax(0,1fr) auto auto}#taskSlotButton{grid-column:4;grid-row:2}.task-page{padding:75px 10px 15px!important}.task-bottom{grid-template-columns:1fr;height:auto}.task-bottom .task-console-wrap{height:340px}.task-add{padding:10px}.task-card{flex-basis:160px}.task-deck{gap:2px;grid-template-columns:25px minmax(0,1fr) 25px}}
+.task-empty{flex:1;display:flex;align-items:center;justify-content:center;align-self:stretch;min-width:100%;box-sizing:border-box;padding:20px;color:#73859a;text-align:center}.task-console-wrap{flex:1;min-height:150px;display:flex;flex-direction:column;gap:5px;min-width:0}.task-console-host{flex:1;min-height:140px}.task-request-select{width:100%;font-size:12px}.task-page{box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;padding:18px 20px 8px!important;color:#21364e;gap:16px}
+.task-page h2{flex:none;margin:0;padding-right:140px;font-size:26px;line-height:38px;letter-spacing:.03em}
+.task-deck{flex:0 0 clamp(220px,32vh,320px);min-height:0;display:grid;grid-template-columns:48px minmax(0,1fr) 48px;gap:10px;align-items:stretch}
+.task-viewport{min-height:0;overflow:hidden;border:0;border-radius:16px;background:rgba(255,255,255,.56);padding:16px 0;box-sizing:border-box;box-shadow:0 5px 20px #35577a0a;backdrop-filter:blur(8px)}
+.task-slides{display:flex;height:100%;transition:transform .28s ease}
+.task-slide{flex:0 0 100%;min-width:0;min-height:0;padding:0 16px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px}
+.task-slot-title{font-size:21px;line-height:30px;font-weight:650;color:#264b70;letter-spacing:.025em}
+.task-slide>.task-row{min-height:38px;flex:none}.task-slide>.task-cards{flex:1;min-height:0}
+.task-cards{border:1px solid #b8ccdf;border-radius:12px;background:rgba(255,255,255,.42);padding:10px;box-sizing:border-box}
+.task-card{overflow-y:auto}.task-card:hover{border-color:#91b5d8;box-shadow:0 4px 12px #31577d16}
+.task-arrow{align-self:center;width:48px;height:62px;padding:6px;border:0;border-radius:14px;background:rgba(255,255,255,.65);color:#3578b9;box-shadow:0 3px 12px #31577d14;transition:transform .18s,background .18s,opacity .18s}
+.task-arrow svg{width:36px;height:42px;display:block}.task-arrow:not(:disabled):hover{transform:scale(1.07);background:#eef7ff}.task-arrow:disabled{opacity:.28;box-shadow:none}
+.task-bottom{flex:1;min-height:0;display:grid;grid-template-columns:minmax(250px,1fr) minmax(0,3fr);gap:20px;padding: 0 50px;}
+.task-sidebar{min-width:0;padding:4px;display: flex;align-items: center}
+.task-add{box-sizing:border-box;width:100%;display:flex;align-items:center;justify-content:center;gap:14px;min-height:80px;padding:12px 16px;border:1px solid #397fbe;border-radius:14px;background:linear-gradient(135deg,#4c9bde,#3279bd);color:white;font-size:28px;line-height:1.2;box-shadow:0 6px 18px #266bac28;transition:transform .28s cubic-bezier(.22,1,.36,1),box-shadow .28s cubic-bezier(.22,1,.36,1),background .2s ease;transform-origin:center}
+.task-add svg{width:48px;height:48px;flex:none}.task-add:hover{background:linear-gradient(135deg,#58a8e8,#3b86cb);transform:scale(1.025);box-shadow:0 9px 22px #266bac38}.task-add:active{transform:scale(.99)}
+.task-log-panel{min-width:0;min-height:0;display:flex;flex-direction:column;gap:10px;padding:12px;box-sizing:border-box;border:1px solid #b8ccdf;border-radius:16px;background:rgba(255,255,255,.62);box-shadow:0 5px 20px #35577a0c;backdrop-filter:blur(8px)}
+.task-log-toolbar{display:flex;align-items:center;gap:12px;flex:none}.task-log-toolbar>span{color:#587591;font-size:14px}.task-log-panel>.task-console-wrap,.task-log-panel .task-console-host,.task-log-panel .ui-console{min-height:0}.task-log-panel .ui-console-output{min-height:0}
+.task-brief-title{font-size:19px;line-height:28px;font-weight:650;color:#264b70;margin:0;letter-spacing:.025em}.task-popover{background:rgba(248,251,255,.96);backdrop-filter:blur(14px);border-radius:16px}.task-popover>.task-cards{flex:none;min-height:120px}.task-button:not(.task-add):not(.task-arrow){transition:background .16s,border-color .16s,box-shadow .16s}.task-button:focus-visible{outline:2px solid #4a90d9;outline-offset:3px}
+.task-disconnected{color:#a74932;}.task-dialog{border:1px solid #bfd0e0;border-radius:12px;max-width:min(430px,90vw);padding:24px;color:#243d57;box-shadow:0 15px 60px #10243b55}.task-dialog::backdrop{background:#182e4855}.task-dialog label{display:block;margin:12px 0}.task-dialog input,.task-dialog select{display:block;width:100%;box-sizing:border-box;margin-top:5px;padding:8px;border:1px solid #bbccdc;border-radius:5px}.task-dialog .task-actions{margin-top:18px}.task-dialog-error{color:#ab3939}
+@media(max-width:800px){#upbar{grid-template-columns:auto minmax(0,1fr) auto auto}#taskSlotButton{grid-column:4;grid-row:2}.task-page{padding:16px 10px!important;gap:12px}.task-page h2{font-size:23px;line-height:36px}.task-bottom{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr);gap:10px}.task-sidebar{padding:2px 6px}.task-add{min-height:68px;padding:8px 16px}.task-deck{grid-template-columns:34px minmax(0,1fr) 34px;gap:4px;flex-basis:clamp(220px,35vh,280px)}.task-arrow{width:34px;height:54px;padding:2px}.task-arrow svg{width:30px;height:40px}.task-slide{padding:0 10px;gap:8px}.task-slot-title{font-size:19px}.task-slide>.task-row{gap:6px}.task-slide select{padding:5px;max-width:140px}.task-card{flex-basis:180px;gap:8px;padding:32px 12px 10px}.task-log-panel{padding:9px;gap:7px}.task-brief-title{font-size:17px}}
+@media(max-height:600px){.task-page{gap:8px;padding-top:12px!important;padding-bottom:7px!important}.task-page h2{font-size:21px;line-height:32px}.task-deck{flex-basis:190px}.task-viewport{padding:10px 0}.task-slide{gap:6px}.task-slot-title{font-size:18px}.task-add{min-height:58px}.task-add svg{width:40px;height:40px}.task-log-panel{padding:8px;gap:5px}.task-card{gap:4px;padding:28px 10px 6px}.task-card small{font-size:11px;line-height:14px}.task-card strong{font-size:13px;line-height:18px}.task-card .task-button{padding:4px 7px;font-size:12px}}
+@media(max-height:500px){.task-page{gap:6px;}.task-page h2{line-height:30px}.task-deck{flex-basis:170px}.task-viewport{padding:6px 0}.task-log-panel{padding:8px;gap:0px}}
+@media(prefers-reduced-motion:reduce){.task-add,.task-arrow,.task-slides{transition:none}.task-add:hover,.task-arrow:not(:disabled):hover{transform:none}}
     </style>
 </head>
 <body>
@@ -1067,26 +1088,27 @@
             this.prefix='ui-console-'+(++serial)+'-';this.counter=0;this.cr=false;this.stylePrefix='';
             this.root=element('div','ui-console');
             this.output=element('div','ui-console-output');this.output.tabIndex=0;this.output.setAttribute('aria-label','控制台输出');
+            this.lines=element('div','ui-console-lines');
             this.newOutput=element('button','ui-console-new','有新输出 ↓');this.newOutput.type='button';this.newOutput.hidden=true;
             this.label=element('label','ui-console-prompt',this.options.prompt);
             this.form=element('form','ui-console-form');
             this.input=element('input','ui-console-input');this.input.type='text';this.input.autocomplete='off';this.input.spellcheck=false;
             this.input.placeholder=this.options.placeholder;this.input.setAttribute('aria-label',this.options.prompt || '控制台输入');
             this.label.htmlFor=this.input.id=this.prefix+'input';
-            this.send=element('button','ui-console-send','发送');this.send.type='submit';
+            this.marker=element('span','ui-console-marker','>');this.marker.setAttribute('aria-hidden','true');
             this.error=element('div','ui-console-error');this.error.setAttribute('role','status');
-            this.form.append(this.input,this.send);this.root.append(this.output,this.newOutput,this.label,this.form,this.error);container.appendChild(this.root);
+            this.form.append(this.marker,this.input);this.output.append(this.lines,this.label,this.form,this.error);this.root.append(this.output,this.newOutput);container.appendChild(this.root);
             this.onScroll=()=>{if(this._atBottom())this.newOutput.hidden=true;};
             this.onJump=()=>{this.output.scrollTop=this.output.scrollHeight;this.newOutput.hidden=true;};
             this.onEdit=()=>{this.editVersion++;};
             this.onSubmit=e=>{e.preventDefault();this._submit();};
-            this.onKey=e=>{if(e.key==='Enter' && (e.isComposing || e.keyCode===229))e.preventDefault();};
+            this.onKey=e=>{if(e.key==='Enter'){e.preventDefault();if(!e.isComposing && e.keyCode!==229)this._submit();}};
             this.output.addEventListener('scroll',this.onScroll);this.newOutput.addEventListener('click',this.onJump);
             this.input.addEventListener('input',this.onEdit);this.input.addEventListener('keydown',this.onKey);this.form.addEventListener('submit',this.onSubmit);
             this._enabled();
         }
         _atBottom(){return this.output.scrollHeight-this.output.clientHeight-this.output.scrollTop<24;}
-        _enabled(){const disabled=this.destroyed || !this.options.inputEnabled || !this.options.onInput || this.busy;this.input.disabled=disabled;this.send.disabled=disabled;this.send.textContent=this.busy?'发送中…':'发送';}
+        _enabled(){const disabled=this.destroyed || !this.options.inputEnabled || !this.options.onInput || this.busy;this.input.disabled=disabled;this.form.hidden=!(this.options.inputEnabled && this.options.onInput) && !this.busy;this.form.setAttribute('aria-busy',String(this.busy));}
         _row(textValue,id){checkText(textValue);if(/[\r\n]/.test(textValue))throw new TypeError('行正文不能含换行');return {id,text:cut(textValue,this.options.maxLineBytes)};}
         _paint(){
             if(this.destroyed)return;
@@ -1094,7 +1116,7 @@
             while(this.rows.length>this.options.maxLines)this.rows.shift();
             const fragment=document.createDocumentFragment();
             for(const row of this.rows){const line=element('div','ui-console-line');renderText(line,row.text,this.options.ansi);if(!line.childNodes.length)line.textContent='\u200b';fragment.appendChild(line);}
-            this.output.replaceChildren(fragment);
+            this.lines.replaceChildren(fragment);
             if(this.options.autoScroll && follow){this.output.scrollTop=this.output.scrollHeight;this.newOutput.hidden=true;}
             else {this.output.scrollTop=Math.max(0,oldTop-(oldHeight>this.output.scrollHeight?oldHeight-this.output.scrollHeight:0));this.newOutput.hidden=false;}
         }
@@ -1290,15 +1312,20 @@
             save.disabled=true;try{await request('TASK_SCHEDULE_UPDATE',{schedule_id:plan.schedule_id,expected_revision:plan.revision,timing});d.close();refresh();}catch(e){error.textContent=e.message;}finally{save.disabled=false;}});
         d.addEventListener('close',()=>d.remove(),{once:true});d.showModal();
     }
+    function taskIcon(pathData){
+        const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 48 48');svg.setAttribute('aria-hidden','true');
+        const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',pathData);path.setAttribute('fill','none');path.setAttribute('stroke','currentColor');path.setAttribute('stroke-width','3.5');path.setAttribute('stroke-linecap','round');path.setAttribute('stroke-linejoin','round');svg.appendChild(path);return svg;
+    }
     function openPage(){
         popover.hidden=true;button.setAttribute('aria-expanded','false');
         const page=new_page();page.classList.add('task-page');createBackButtons(page);page.appendChild(el('h2','','计划任务管理'));
-        const deck=el('div','task-deck'),left=btn('‹',()=>flip(0)),right=btn('›',()=>flip(1)),viewport=el('div','task-viewport'),slides=el('div','task-slides'),current=el('div','task-slide'),scheduled=el('div','task-slide');
-        const header=el('div','task-row'),select=el('select');select.setAttribute('aria-label','查看队列');header.append(el('strong','','当前状态槽'),el('span','','队列'),select);const list=el('div','task-cards'),plans=el('div','task-cards');current.append(header,list);scheduled.append(el('strong','','定时任务槽'),plans);slides.append(current,scheduled);viewport.appendChild(slides);deck.append(left,viewport,right);page.appendChild(deck);
-        const bottom=el('div','task-bottom'),side=el('div'),host=el('div','task-console-wrap');
+        const deck=el('div','task-deck'),left=btn('',()=>flip(0),'task-arrow'),right=btn('',()=>flip(1),'task-arrow'),viewport=el('div','task-viewport'),slides=el('div','task-slides'),current=el('div','task-slide'),scheduled=el('div','task-slide');
+        left.setAttribute('aria-label','上一页');right.setAttribute('aria-label','下一页');left.appendChild(taskIcon('M30 10L16 24l14 14'));right.appendChild(taskIcon('M18 10l14 14-14 14'));
+        const header=el('div','task-row'),select=el('select');select.setAttribute('aria-label','查看队列');header.append(el('strong','task-slot-title','当前状态槽'),el('span','','队列'),select);const list=el('div','task-cards'),plans=el('div','task-cards');current.append(header,list);scheduled.append(el('strong','task-slot-title','定时任务槽'),plans);slides.append(current,scheduled);viewport.appendChild(slides);deck.append(left,viewport,right);page.appendChild(deck);
+        const bottom=el('div','task-bottom'),side=el('div','task-sidebar'),host=el('div','task-log-panel'),toolbar=el('div','task-log-toolbar');
         const add=btn('',()=>{const blank=new_page();createBackButtons(blank);},'task-add');
-        add.append(el('span','','+'),el('span','','新建任务'));
-        side.append(add,btn('清空日志',()=>safeAction('TASK_CLEAR_LOGS',{queue_id:view.queue})));
+        add.append(taskIcon('M24 7v34M7 24h34'),el('span','','新建任务'));
+        side.append(add);toolbar.append(btn('清空日志',()=>safeAction('TASK_CLEAR_LOGS',{queue_id:view.queue})),el('span','','运行日志'));host.appendChild(toolbar);
         bottom.append(side,host);page.appendChild(bottom);const view=attachConsole(host,'main');
         select.addEventListener('change',()=>{view.switchQueue(select.value);view.render();});
         view.render=()=>{if(!snapshot.queues.some(q=>q.queue_id===view.queue))view.switchQueue('main');select.replaceChildren();for(const q of snapshot.queues){const count=snapshot.inputs.filter(r=>r.queue_id===q.queue_id).length;const o=el('option','',q.name+(count?` · ${count} 项等待输入`:''));o.value=q.queue_id;select.appendChild(o);}select.value=view.queue;select.disabled=!connected;fillCards(list,snapshot.tasks.filter(t=>t.queue_id===view.queue),true,false);fillCards(plans,snapshot.schedules,true,true);};
@@ -1311,7 +1338,7 @@
         button=el('button');button.id='taskSlotButton';button.type='button';button.setAttribute('aria-label','计划任务');button.setAttribute('aria-expanded','false');
         const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d','M4 4h16v16H4z M8 2v4 M16 2v4 M4 9h16 M8 13h3 M8 16h7');path.setAttribute('fill','none');path.setAttribute('stroke','currentColor');path.setAttribute('stroke-width','1.6');svg.appendChild(path);button.appendChild(svg);
         const count=el('span');count.id='taskInputCount';count.hidden=true;button.appendChild(count);document.getElementById('upbar').appendChild(button);
-        popover=el('section','task-popover');popover.hidden=true;popover.setAttribute('aria-label','计划任务简报');stats=el('div','task-stat');stats.style.whiteSpace='pre-line';cards=el('div','task-cards');popover.append(stats,cards);document.body.appendChild(popover);attachConsole(popover,'main');const footer=el('div','task-actions');footer.append(btn('清空日志',()=>safeAction('TASK_CLEAR_LOGS',{queue_id:'main'})),btn('详细信息',openPage));popover.appendChild(footer);
+        popover=el('section','task-popover');popover.hidden=true;popover.setAttribute('aria-label','计划任务简报');stats=el('div','task-stat');stats.style.whiteSpace='pre-line';cards=el('div','task-cards');popover.append(el('h3','task-brief-title','任务情况简报'),stats,cards);document.body.appendChild(popover);attachConsole(popover,'main');const footer=el('div','task-actions');footer.append(btn('清空日志',()=>safeAction('TASK_CLEAR_LOGS',{queue_id:'main'})),btn('详细信息',openPage));popover.appendChild(footer);
         button.addEventListener('click',()=>{popover.hidden=!popover.hidden;button.setAttribute('aria-expanded',String(!popover.hidden));positionPopover();});
         document.addEventListener('click',e=>{if(!popover.hidden && !popover.contains(e.target)&&!button.contains(e.target)){popover.hidden=true;button.setAttribute('aria-expanded','false');}});
         document.addEventListener('keydown',e=>{if(e.key==='Escape'){popover.hidden=true;button.setAttribute('aria-expanded','false');}});window.addEventListener('resize',positionPopover);

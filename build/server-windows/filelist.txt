@@ -8,6 +8,7 @@ server.bat
 requirements.txt
 
 backend\back.py
+backend\backapi.py
 backend\classify_shower_back.py
 backend\classify_shower_video.py
 backend\classify_shower_db_manager.py
