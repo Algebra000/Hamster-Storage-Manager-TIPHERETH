@@ -903,6 +903,8 @@ class CS_AnimeDetailWidget {
         const contentDiv = document.createElement('div');
         contentDiv.style.cssText = 'position:absolute;top:10px;bottom:10px;left:50%;transform:translateX(-50%);width:70%;background:rgba(255,255,255,0.6);border-radius:10px;overflow-y:auto;display:flex;gap:30px;padding:20px;';
         container.appendChild(contentDiv);
+        const cleanupScrollbar = cs_beautifyScrollbar(contentDiv, 'vertical');
+        if (container.cleanFuncList) container.cleanFuncList.push(cleanupScrollbar);
 
         const posterDiv = document.createElement('div');
         posterDiv.style.cssText = 'flex:0 0 300px;display:flex;align-items:flex-start;justify-content:center;';
