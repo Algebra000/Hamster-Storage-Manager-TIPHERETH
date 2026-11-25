@@ -1390,6 +1390,85 @@ class ClassifyShowerVideo:
         return count
 
 
+    @staticmethod
+    def anime_video_files(root):
+        extensions = tuple('.' + ext.lower() for ext in video_type_list)
+        with os.scandir(root) as entries:
+            files = []
+            for entry in entries:
+                try:
+                    if entry.name.lower().endswith(extensions) and entry.is_file():
+                        # Windows 共享盘可能允许列出文件名，却拒绝打开该文件。
+                        with open(entry.path, 'rb'):
+                            files.append(entry.name)
+                except OSError:
+                    continue
+            return sorted(files)
+
+    def set_anime_detail(self, anime_id, edit):
+        cursor = self.database_manager.db_cursor
+        cursor.execute('SELECT root_path FROM anime WHERE id = ?', (anime_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError('番剧不存在，请重新打开详情页')
+        root = Path(row[0])
+        path = root / '__MD__.json'
+        with path.open(encoding='utf-8') as file:
+            metadata = json.load(file)
+        if not isinstance(metadata, dict) or not isinstance(edit, dict):
+            raise ValueError('番剧元数据格式无效')
+        name, introduction = edit.get('name'), edit.get('introduction')
+        source = edit.get('introductionSrc')
+        enabled = edit.get('enableEpisodeMap')
+        if not isinstance(name, str) or not name.strip() or not isinstance(introduction, str):
+            raise ValueError('请填写番剧名称，并检查简介格式')
+        if not isinstance(source, dict) or not all(isinstance(source.get(k), str) for k in ('src-name', 'src-url')):
+            raise ValueError('简介来源格式无效')
+        if type(enabled) is not bool:
+            raise ValueError('剧集映射开关无效')
+        for key, limit in [('year', 9999), ('month', 12)]:
+            value = edit[key]
+            if value is None:
+                metadata.pop(key, None)
+            elif type(value) is int and 1 <= value <= limit:
+                metadata[key] = value
+            else:
+                raise ValueError('放送年月无效')
+        if edit['month'] is not None and edit['year'] is None:
+            raise ValueError('请填写放送年份')
+        metadata.update(name=name.strip(), introduction=introduction)
+        metadata['enable-episode-map'] = enabled
+        metadata['introduction-src'] = {k: source[k] for k in ('src-name', 'src-url')}
+        if enabled or 'episodeMap' in edit:
+            mapping = edit.get('episodeMap')
+            if not isinstance(mapping, list):
+                raise ValueError('剧集映射必须是列表')
+            available = set(self.anime_video_files(root))
+            mapped_files = set()
+            episodes = []
+            for order, ep in enumerate(mapping, 1):
+                if (not isinstance(ep, dict) or type(ep.get('order')) is not int or ep['order'] != order
+                        or not isinstance(ep.get('name'), str) or not isinstance(ep.get('path'), str)):
+                    raise ValueError('剧集映射的集序、名称或文件名无效')
+                if ep['path'] in available:
+                    if ep['path'] in mapped_files:
+                        raise ValueError('同一视频不能映射到多个剧集')
+                    mapped_files.add(ep['path'])
+                episodes.append({k: ep[k] for k in ('order', 'name', 'path')})
+            metadata['episode-map'] = episodes
+
+        with tempfile.NamedTemporaryFile(dir=root, delete=False) as temp:
+            temp_path = Path(temp.name)
+        try:
+            temp_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+            with self.database_manager.db_conn:
+                cursor.execute('UPDATE anime SET name=?, name_pinyin=?, year=?, month=? WHERE id=?',
+                               (metadata['name'], self.database_manager.get_pinyin(metadata['name']),
+                                edit['year'], edit['month'], anime_id))
+                os.replace(temp_path, path)
+        finally:
+            temp_path.unlink(missing_ok=True)
+
     def get_anime_detail(self, anime_id: int) -> Dict:
         """获取番剧详情
 
@@ -1417,7 +1496,9 @@ class ClassifyShowerVideo:
             'month': row[5],
             'coverPath': row[6],
             'episodeCount': row[7],
-            'entryTime': row[8]
+            'entryTime': row[8],
+            'enableEpisodeMap': True,
+            'hasEpisodeMap': False,
         }
 
         md_path = os.path.join(row[1], '__MD__.json')
@@ -1432,6 +1513,8 @@ class ClassifyShowerVideo:
                 anime['introduction'] = md_data.get('introduction')
                 anime['introductionSrc'] = md_data.get('introduction-src')
                 anime['episodeMap'] = md_data.get('episode-map', [])
+                anime['hasEpisodeMap'] = isinstance(md_data.get('episode-map'), list)
+                anime['enableEpisodeMap'] = md_data.get('enable-episode-map', True) is not False
             except Exception as e:
                 print(f"[分类展示模块] 读取__MD__.json失败: {e}")
                 anime['tags'] = []
@@ -1447,32 +1530,9 @@ class ClassifyShowerVideo:
         has_danmu = False
         danmu_sources = set()
         root_path = row[1]
-        video_files = []
-
-        if anime['episodeMap']:
-            for ep in anime['episodeMap']:
-                video_files.append({
-                    'order': ep.get('order'),
-                    'path': ep.get('path'),
-                    'name': ep.get('name', '')
-                })
-        else:
-            if os.path.exists(root_path):
-                for f in os.listdir(root_path):
-                    if f.lower().endswith(tuple(f'.{ext}' for ext in video_type_list)):
-                        video_files.append({
-                            'order': len(video_files) + 1,
-                            'path': f,
-                            'name': ''
-                        })
-            video_files.sort(key=lambda x: x['path'])
-            for i in range(len(video_files)):
-                video_files[i]['order'] = i + 1 # 重置为正确的剧集顺序
-
-
-        anime['episodes'] = []
-        for ep in video_files:
-            video_name = ep['path']
+        anime['videoFiles'] = self.anime_video_files(root_path) if os.path.isdir(root_path) else []
+        video_info = {}
+        for video_name in anime['videoFiles']:
             dm_dir = os.path.join(root_path, f'{video_name}@meta')
             dmcf_json_path = os.path.join(dm_dir, 'rmcf.json')
             dm_info_path = os.path.join(dm_dir, 'dm-info.json')
@@ -1495,13 +1555,18 @@ class ClassifyShowerVideo:
                 except Exception as e:
                     print(f"[分类展示模块] 读取dm-info.json失败: {e}")
 
-            anime['episodes'].append({
-                'order': ep['order'],
-                'name': ep['name'],
-                'path': ep['path'],
-                'hasDanmu': has_ep_danmu,
-                'danmuSources': ep_danmu_sources
-            })
+            video_info[video_name] = dict(hasDanmu=has_ep_danmu, danmuSources=ep_danmu_sources)
+
+        if anime['enableEpisodeMap'] and anime['hasEpisodeMap']:
+            episodes = sorted((ep for ep in anime['episodeMap'] if isinstance(ep, dict)),
+                              key=lambda ep: ep.get('order') if type(ep.get('order')) is int else 0)
+        else:
+            episodes = [dict(order=i, path=f, name='') for i, f in enumerate(anime['videoFiles'], 1)]
+        anime['episodes'] = []
+        for ep in episodes:
+            path = ep.get('path') if isinstance(ep.get('path'), str) else ''
+            info = video_info.get(path, dict(hasDanmu=False, danmuSources=[]))
+            anime['episodes'].append({**ep, **info, 'path': path, 'available': path in video_info})
 
         anime['hasDanmu'] = has_danmu
         anime['danmuSources'] = list(danmu_sources)
@@ -3502,11 +3567,22 @@ class ClassifyShowerVideo:
             await websocket.send(message)
             print(f"[分类展示模块] 发送番剧分页数据，共 {len(result['animeList'])} 条")
 
-        elif command == 'GET_ANIME_DETAIL':
+        elif command in ('GET_ANIME_DETAIL', 'CS_SET_ANIME_DETAIL'):
             widget_id = data.get('widgetId', '')
             anime_id = data.get('animeId')
-            print(f"[分类展示模块] 收到获取番剧详情请求: animeId={anime_id}")
-            result = self.get_anime_detail(anime_id)
+            saving = command == 'CS_SET_ANIME_DETAIL'
+            response = {'widgetId': widget_id, 'command': 'ANIME_DETAIL_DATA'}
+            if saving:
+                response.update(command='CS_SET_ANIME_DETAIL_RESULT', requestId=data.get('requestId'))
+            try:
+                if saving:
+                    self.set_anime_detail(anime_id, data.get('animeDetail'))
+                result = self.get_anime_detail(anime_id)
+            except (OSError, ValueError, KeyError, sqlite3.Error) as error:
+                if not saving:
+                    raise
+                await websocket.send(json.dumps({**response, 'error': str(error)}, ensure_ascii=False))
+                return True
             if result:
                 result = dict(result)
                 cover_path = result.get('coverPath')
@@ -3518,11 +3594,7 @@ class ClassifyShowerVideo:
                     except (OSError, ValueError, RuntimeError, CSResourceHTTPException):
                         # 海报失效不影响详情；不向前端回退发送磁盘路径。
                         pass
-            message = json.dumps({
-                'command': 'ANIME_DETAIL_DATA',
-                'widgetId': widget_id,
-                'animeDetail': result
-            }, ensure_ascii=False)
+            message = json.dumps({**response, 'animeDetail': result}, ensure_ascii=False)
             await websocket.send(message)
             print(f"[分类展示模块] 发送番剧详情数据")
 

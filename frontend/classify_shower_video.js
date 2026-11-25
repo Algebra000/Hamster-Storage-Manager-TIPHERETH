@@ -882,7 +882,8 @@ class CS_AnimeDetailWidget {
         container.style.overflow = 'hidden';
 
         const messageHandler = (data) => {
-            if (data.command === 'ANIME_DETAIL_DATA' && data.widgetId === 'anime_detail_' + this.animeId) {
+            if (['ANIME_DETAIL_DATA', 'CS_SET_ANIME_DETAIL_RESULT'].includes(data.command)
+                && data.widgetId === 'anime_detail_' + this.animeId) {
                 this.handleCommand(data.command, data);
             }
         };
@@ -905,6 +906,14 @@ class CS_AnimeDetailWidget {
         container.appendChild(contentDiv);
         const cleanupScrollbar = cs_beautifyScrollbar(contentDiv, 'vertical');
         if (container.cleanFuncList) container.cleanFuncList.push(cleanupScrollbar);
+        if (container.cleanFuncList) container.cleanFuncList.push(() => this.closeEditor());
+
+        this.editButton = document.createElement('button');
+        this.editButton.textContent = '编辑';
+        this.editButton.disabled = true;
+        this.editButton.style.cssText = 'position:absolute;right:18px;top:14px;padding:6px 16px;border:1px solid #bad7ee;border-radius:16px;background:#e3f2fd;color:#185b96;font-weight:600;cursor:pointer;';
+        this.editButton.onclick = () => this.openEditor();
+        contentDiv.appendChild(this.editButton);
 
         const posterDiv = document.createElement('div');
         posterDiv.style.cssText = 'flex:0 0 300px;display:flex;align-items:flex-start;justify-content:center;';
@@ -923,7 +932,7 @@ class CS_AnimeDetailWidget {
         contentDiv.appendChild(infoDiv);
 
         const nameDiv = document.createElement('div');
-        nameDiv.style.cssText = 'font-size:24px;font-weight:bold;color:#333;';
+        nameDiv.style.cssText = 'font-size:24px;font-weight:bold;color:#333;padding-right:66px;';
         infoDiv.appendChild(nameDiv);
 
         const timeDiv = document.createElement('div');
@@ -998,20 +1007,363 @@ class CS_AnimeDetailWidget {
     }
 
     handleCommand(command, data) {
-        if (command === 'ANIME_DETAIL_DATA') {
+        if (command === 'CS_SET_ANIME_DETAIL_RESULT') {
+            if (!this.editor || this.editor.requestId !== data.requestId) return;
+            if (data.error || !data.animeDetail) {
+                this.editor.saveFailed(data.error || '保存失败，请重试');
+                return;
+            }
+            this.closeEditor();
+        }
+        if (data.animeDetail) {
             this.detail = data.animeDetail;
             this.renderDetail();
+            this.editButton.disabled = false;
         }
     }
 
     sendCommand(command, data = {}) {
         if (socket && socket.isConnected()) {
-            socket.send(JSON.stringify({
+            return socket.send(JSON.stringify({
                 command: command,
                 widgetId: 'anime_detail_' + this.animeId,
                 ...data
-            }));
+            })) !== false;
         }
+        return false;
+    }
+
+    closeEditor() {
+        if (!this.editor) return;
+        this.editor.dispose();
+        this.editor = null;
+    }
+
+    openEditor() {
+        if (!this.detail || this.editor) return;
+        const d = this.detail;
+        const content = this.contentDiv;
+        const scrollTop = content.scrollTop;
+        const previous = Array.from(content.children, child => [child, child.style.display]);
+        previous.forEach(([child]) => { child.style.display = 'none'; });
+        const form = document.createElement('form');
+        form.className = 'cs-anime-editor';
+        form.style.cssText = 'width:100%;min-width:0;align-self:flex-start;color:#333;';
+        form.innerHTML = `
+            <style>
+            .cs-anime-editor { container-type:inline-size;font:inherit;accent-color:#1976d2; }
+            .cs-anime-editor fieldset { min-width:0;margin:0; }
+            .cs-anime-editor .fields { border:0;padding:0;display:grid;gap:16px; }
+            .cs-anime-editor .pair { display:grid;grid-template-columns:1fr 1fr;gap:14px; }
+            .cs-anime-editor .field { display:grid;align-content:start;gap:6px;min-width:0;font-weight:600; }
+            .cs-anime-editor .date-line { display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-weight:400; }
+            .cs-anime-editor .source { border:1px solid #d5e4ef;border-radius:8px;padding:10px 14px 14px; }
+            .cs-anime-editor legend { padding:0 6px;color:#465c70;font-weight:600; }
+            .cs-anime-editor input:not([type=checkbox]), .cs-anime-editor textarea { box-sizing:border-box;min-width:0;max-width:100%;padding:7px 9px;border:1px solid #bccddc;border-radius:7px;background:white;color:#283b4b;font:inherit;font-weight:400; }
+            .cs-anime-editor textarea { width:100%;resize:vertical; }
+            .cs-anime-editor button { padding:7px 12px;border:1px solid #bad7ee;border-radius:7px;background:#e3f2fd;color:#185b96;font:inherit;cursor:pointer; }
+            .cs-anime-editor button:hover:enabled { background:#d1e9fc; }
+            .cs-anime-editor :is(input,textarea,button):focus-visible { outline:2px solid #1976d2;outline-offset:2px; }
+            .cs-anime-editor button:disabled { opacity:.48;cursor:default; }
+            .cs-anime-editor .actions { text-align:right; }
+            .cs-anime-editor button[type=submit] { background:#1976d2;color:white;border-color:#1976d2;font-weight:600;padding:9px 18px; }
+            .cs-anime-editor button[type=submit]:hover:enabled { background:#1565c0; }
+            .cs-anime-editor .mapping-heading { display:flex;align-items:center;gap:10px;font-weight:600; }
+            .cs-anime-editor [role=switch] { appearance:none;width:34px;height:20px;vertical-align:middle;border-radius:10px;background:#777;cursor:pointer; }
+            .cs-anime-editor [role=switch]::before { content:'';display:block;width:14px;height:14px;margin:3px;border-radius:50%;background:white; }
+            .cs-anime-editor [role=switch]:checked { background:#1976d2; }
+            .cs-anime-editor [role=switch]:checked::before { transform:translateX(14px); }
+            .cs-anime-editor .episodes { max-height:42vh;overflow:auto;margin-top:10px;padding:8px;border:1px solid #b9cddd;border-radius:12px;background:rgba(255,255,255,.44); }
+            .cs-anime-editor .episode { display:grid;grid-template-columns:minmax(0,1.4fr) auto minmax(0,1fr) auto;gap:6px 12px;align-items:center;padding:8px 12px;border:1px solid #d5e4ef;border-radius:14px;background:rgba(255,255,255,.88);font-size:14px;color:#000; }
+            .cs-anime-editor .episode + .episode { margin-top:6px; }
+            .cs-anime-editor .episode.unused { color:#777; }
+            .cs-anime-editor .episode input { color:inherit; }
+            .cs-anime-editor .episode:is(:hover,:focus-within) { background:#f3f9ff; }
+            .cs-anime-editor .filename { overflow-wrap:anywhere; }
+            .cs-anime-editor .order { border-radius:12px;padding:3px 8px;background:#e3f2fd;text-align:center; }
+            .cs-anime-editor .name { display:grid;gap:3px; }
+            .cs-anime-editor .moves { position:fixed;inset:auto;margin:0;box-sizing:border-box;width:148px;padding:8px;background:white;border:1px solid #bad7ee;border-radius:9px;box-shadow:0 3px 12px #24405b30;font-size:13px; }
+            .cs-anime-editor .moves:popover-open { display:flex;align-items:center;flex-wrap:wrap;gap:5px; }
+            .cs-anime-editor .moves button { padding:3px 7px; }
+            .cs-anime-editor button.add { border:0;border-radius:50%;padding:6px;width:30px;height:30px;background:#1976d2;vertical-align:middle; }
+            .cs-anime-editor button.add:hover { background:#1565c0; }
+            .cs-anime-editor .add svg { display:block;width:100%;height:100%; }
+            .cs-anime-editor button.remove { border:0;background:#c13737;color:white; }
+            .cs-anime-editor button.remove:hover { background:#a92828; }
+            .cs-anime-editor button.filename { padding:3px 0;border:0;background:transparent;text-align:left;color:inherit;text-decoration:underline dotted; }
+            .cs-anime-editor .error { color:#b3261e;overflow-wrap:anywhere; }
+            @container (max-width:640px) {
+                .cs-anime-editor .pair { grid-template-columns:minmax(0,1fr); }
+                .cs-anime-editor .episode { grid-template-columns:minmax(0,1fr) auto; }
+            }
+            </style>
+            <fieldset class="fields">
+                <label class="field">番剧名称 <input name="title" required></label>
+                <div class="field">放送时间 <div class="date-line"><label><input type="number" name="year" min="1" max="9999" style="width:6em"> 年</label>
+                    <label><input type="number" name="month" min="1" max="12" style="width:4em"> 月</label>
+                    <button type="button" name="chooseDate">选择时间</button>
+                    <input type="date" name="date" aria-label="选择放送日期"></div></div>
+                <label class="field">简介<textarea name="intro" rows="4"></textarea></label>
+                <fieldset class="source"><legend>简介来源</legend><div class="pair">
+                    <label class="field">名称 <input name="sourceName"></label> <label class="field">URL <input name="sourceUrl"></label>
+                </div></fieldset>
+                <label class="mapping-heading">剧集映射 <input type="checkbox" role="switch" name="enabled"></label>
+                <div class="mapping"><button type="button" name="defaults">设为默认</button>
+                    <button type="button" class="add" name="add" title="添加候补剧集" aria-label="添加候补剧集"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50,10 V90 M10,50 H90" stroke="white" stroke-width="10" fill="none"/></svg></button>
+                    <div class="episodes"></div></div>
+                <div class="actions"><button type="button" name="discard">放弃更改并返回详情页</button> <button type="submit">保存并返回详情页</button></div>
+            </fieldset><div class="error" role="alert"></div>`;
+        content.appendChild(form);
+        content.scrollTop = 0;
+        const f = form.elements;
+        const fields = form.querySelector('.fields');
+        const error = form.querySelector('.error');
+        const mapping = form.querySelector('.mapping');
+        const list = form.querySelector('.episodes');
+        f.title.value = d.mdName || d.name || '';
+        f.year.value = d.mdYear ?? d.year ?? '';
+        f.month.value = d.mdMonth ?? d.month ?? '';
+        f.intro.value = d.introduction || '';
+        f.sourceName.value = d.introductionSrc?.['src-name'] || '';
+        f.sourceUrl.value = d.introductionSrc?.['src-url'] || '';
+        f.discard.onclick = () => this.closeEditor();
+        const syncDate = () => {
+            f.date.value = f.year.value ? f.year.value.padStart(4, '0') + '-' + (f.month.value || '1').padStart(2, '0') + '-01' : '';
+        };
+        syncDate();
+        f.year.onchange = f.month.onchange = syncDate;
+        f.chooseDate.onclick = () => {
+            f.date.focus();
+            f.date.showPicker?.();
+        };
+        f.date.onchange = () => {
+            const [year, month] = f.date.value.split('-');
+            f.year.value = year ? Number(year) : '';
+            f.month.value = month ? Number(month) : '';
+        };
+        f.enabled.checked = d.enableEpisodeMap !== false;
+        mapping.hidden = !f.enabled.checked;
+        f.enabled.onchange = () => {
+            hideMoves();
+            mapping.hidden = !f.enabled.checked;
+        };
+
+        // 旧版详情回包只提供播放剧集和已有映射。优先采用新版的完整文件清单。
+        const episodes = Array.isArray(d.episodes) ? d.episodes : [];
+        const episodeMap = Array.isArray(d.episodeMap) ? d.episodeMap : [];
+        const files = Array.isArray(d.videoFiles) ? d.videoFiles
+            : [...new Set(episodes.filter(ep => ep?.available !== false).map(ep => ep?.path)
+                .filter(path => typeof path === 'string' && path.length))].sort();
+        const defaultRows = () => files.map(path => ({path, name: '', used: true}));
+        let rows = defaultRows();
+        const savedOrder = d.hasEpisodeMap === undefined && !Array.isArray(d.episodeMap)
+            ? episodes : episodeMap;
+        if (d.hasEpisodeMap ?? savedOrder.length > 0) {
+            const remaining = new Map(rows.map(row => [row.path, row]));
+            rows = [];
+            for (const ep of [...savedOrder].filter(Boolean).sort((a, b) => a.order - b.order)) {
+                const path = typeof ep.path === 'string' ? ep.path : '';
+                const candidate = !remaining.delete(path);
+                rows.push({path, name: ep.name || '', used: true, candidate});
+            }
+            rows.push(...Array.from(remaining.values(), row => ({...row, used: false})));
+        }
+        let mappingEdited = false;
+        let openMoves = null;
+        let hideMovesTimer;
+        function hideMoves() {
+            clearTimeout(hideMovesTimer);
+            openMoves?.hidePopover();
+            openMoves = null;
+        }
+        function positionMoves() {
+            if (!openMoves) return;
+            const row = openMoves.parentElement.getBoundingClientRect();
+            const bounds = list.getBoundingClientRect();
+            if (row.bottom <= Math.max(0, bounds.top) || row.top >= Math.min(innerHeight, bounds.bottom)) {
+                hideMoves();
+                return;
+            }
+            const popup = openMoves.getBoundingClientRect();
+            openMoves.style.left = Math.min(row.right, innerWidth - popup.width - 4) + 'px';
+            openMoves.style.top = Math.max(4, Math.min(row.top, innerHeight - popup.height - 4)) + 'px';
+        }
+        window.addEventListener('scroll', positionMoves, true);
+        window.addEventListener('resize', positionMoves);
+        function drawRows() {
+            const listScrollTop = list.scrollTop;
+            hideMoves();
+            if (!rows.length) {
+                list.textContent = '暂无可映射的视频';
+                return;
+            }
+            let order = 0;
+            const items = document.createDocumentFragment();
+            rows.forEach((row, index) => {
+                const item = document.createElement('div');
+                item.className = row.used ? 'episode' : 'episode unused';
+                item.innerHTML = `<span class="filename"></span><span class="order"></span><label class="name">剧集名称 <input></label>
+                    <label><input class="used" type="checkbox">使用该视频</label>
+                    <div class="moves" popover="manual"><button type="button" aria-label="上移">▲</button><button type="button" aria-label="下移">▼</button>
+                    <label>设为第<input style="width:4em" inputmode="numeric">集</label><button type="button">确定</button>
+                    <span class="error" role="alert"></span></div>`;
+                const filename = item.querySelector('.filename');
+                filename.textContent = row.path;
+                const number = item.querySelector('.order');
+                const name = item.querySelector('.name');
+                if (row.used) {
+                    number.textContent = '第' + (++order) + '集';
+                    const input = name.querySelector('input');
+                    input.value = row.name;
+                    input.oninput = () => { row.name = input.value; mappingEdited = true; };
+                } else {
+                    number.textContent = name.textContent = '-';
+                }
+                const used = item.querySelector('.used');
+                used.checked = row.used;
+                used.onchange = () => {
+                    row.used = used.checked;
+                    mappingEdited = true;
+                    drawRows();
+                };
+                if (row.candidate) {
+                    const remove = document.createElement('button');
+                    remove.type = 'button';
+                    remove.className = 'remove';
+                    remove.textContent = '删除';
+                    remove.onclick = () => {
+                        rows.splice(index, 1);
+                        mappingEdited = true;
+                        drawRows();
+                    };
+                    used.parentElement.replaceWith(remove);
+                    const label = document.createElement('button');
+                    label.type = 'button';
+                    label.className = 'filename';
+                    label.textContent = row.path || '在此键入文件名称';
+                    filename.replaceWith(label);
+                    label.onclick = () => {
+                        const input = document.createElement('input');
+                        input.setAttribute('aria-label', '候补剧集文件名称');
+                        input.value = row.path;
+                        input.placeholder = '在此键入文件名称';
+                        input.oninput = () => { row.path = input.value; mappingEdited = true; };
+                        input.onblur = () => {
+                            label.textContent = row.path || input.placeholder;
+                            input.replaceWith(label);
+                        };
+                        input.onkeydown = event => {
+                            if (event.key === 'Enter') { event.preventDefault(); input.blur(); label.focus(); }
+                        };
+                        label.replaceWith(input);
+                        input.focus();
+                        input.select();
+                    };
+                }
+                const moves = item.querySelector('.moves');
+                function showMoves() {
+                    if (fields.disabled) return;
+                    clearTimeout(hideMovesTimer);
+                    if (openMoves !== moves) {
+                        hideMoves();
+                        openMoves = moves;
+                        moves.showPopover();
+                    }
+                    positionMoves();
+                }
+                function scheduleHide() {
+                    clearTimeout(hideMovesTimer);
+                    hideMovesTimer = setTimeout(() => {
+                        if (openMoves === moves && !item.matches(':hover, :focus-within')) hideMoves();
+                    }, 120);
+                }
+                item.onmouseenter = item.onfocusin = showMoves;
+                item.onmouseleave = item.onfocusout = scheduleHide;
+                const [up, down, confirm] = moves.querySelectorAll('button');
+                function move(target) {
+                    rows.splice(index, 1);
+                    rows.splice(target, 0, row);
+                    mappingEdited = true;
+                    drawRows();
+                }
+                up.disabled = index === 0;
+                down.disabled = index === rows.length - 1;
+                up.onclick = () => move(index - 1);
+                down.onclick = () => move(index + 1);
+                const target = item.querySelector('.moves input');
+                confirm.onclick = () => {
+                    const value = Number(target.value);
+                    const selected = rows.filter(other => other.used && other !== row);
+                    if (!/^\d+$/.test(target.value) || value < 1 || value > selected.length + 1) {
+                        item.querySelector('.error').textContent = '请输入 1 至 ' + (selected.length + 1) + ' 的集序号';
+                        return;
+                    }
+                    const others = rows.filter(other => other !== row);
+                    const position = value <= selected.length ? others.indexOf(selected[value - 1])
+                        : selected.length ? others.indexOf(selected[selected.length - 1]) + 1 : 0;
+                    row.used = true;
+                    move(position);
+                };
+                target.onkeydown = event => {
+                    if (event.key === 'Enter') { event.preventDefault(); confirm.click(); }
+                };
+                items.appendChild(item);
+            });
+            list.replaceChildren(items);
+            list.scrollTop = listScrollTop;
+        }
+        drawRows();
+        f.add.onclick = () => {
+            rows.push({path: '', name: '', used: true, candidate: true});
+            mappingEdited = true;
+            drawRows();
+            list.scrollTop = list.scrollHeight;
+            list.lastElementChild.querySelector('.filename').focus({preventScroll:true});
+        };
+        f.defaults.onclick = () => { rows = defaultRows(); mappingEdited = true; drawRows(); };
+        const cleanupList = cs_beautifyScrollbar(list, 'vertical');
+        let timer;
+        this.editor = {
+            requestId: null,
+            saveFailed: message => {
+                clearTimeout(timer);
+                this.editor.requestId = null;
+                fields.disabled = false;
+                error.textContent = message;
+            },
+            dispose: () => {
+                clearTimeout(timer);
+                hideMoves();
+                window.removeEventListener('scroll', positionMoves, true);
+                window.removeEventListener('resize', positionMoves);
+                cleanupList();
+                form.remove();
+                previous.forEach(([child, display]) => { child.style.display = display; });
+                content.scrollTop = scrollTop;
+            }
+        };
+        form.onsubmit = event => {
+            event.preventDefault();
+            if (fields.disabled) return;
+            const detail = {
+                name: f.title.value.trim(), year: f.year.value ? Number(f.year.value) : null,
+                month: f.month.value ? Number(f.month.value) : null, introduction: f.intro.value,
+                introductionSrc: {'src-name': f.sourceName.value.trim(), 'src-url': f.sourceUrl.value.trim()},
+                enableEpisodeMap: f.enabled.checked
+            };
+            if (detail.enableEpisodeMap || mappingEdited) {
+                detail.episodeMap = rows.filter(row => row.used).map((row, i) => ({order: i + 1, path: row.path, name: row.name}));
+            }
+            error.textContent = '';
+            hideMoves();
+            fields.disabled = true;
+            const requestId = Date.now() + '-' + Math.random();
+            this.editor.requestId = requestId;
+            timer = setTimeout(() => this.editor.saveFailed('未收到保存结果，请重试'), 30000);
+            if (!this.sendCommand('CS_SET_ANIME_DETAIL', {animeId: this.animeId, requestId, animeDetail: detail})) {
+                this.editor.saveFailed('连接已断开，请重新连接后保存');
+            }
+        };
     }
 
     renderDetail() {
@@ -1061,21 +1413,28 @@ class CS_AnimeDetailWidget {
         };
         this.tagsDiv.appendChild(addTagSpan);
 
+        this.introContentDiv.style.color = d.introduction ? '#555' : '#999';
         if (d.introduction) {
             this.introContentDiv.textContent = d.introduction;
         } else {
             this.introContentDiv.textContent = '暂无简介';
-            this.introContentDiv.style.color = '#999';
         }
 
+        this.introSrcDiv.replaceChildren();
         if (d.introductionSrc) {
             const srcName = d.introductionSrc['src-name'] || '';
             const srcUrl = d.introductionSrc['src-url'] || '';
-            if (srcName) {
-                if (srcUrl) {
-                    this.introSrcDiv.innerHTML = `来源: <a href="${srcUrl}" target="_blank" style="color:#4A90D9;">${srcName}</a>`;
+            if (srcName || srcUrl) {
+                if (/^https?:\/\//i.test(srcUrl)) {
+                    const link = document.createElement('a');
+                    link.href = srcUrl;
+                    link.textContent = srcName || srcUrl;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.style.color = '#4A90D9';
+                    this.introSrcDiv.append('来源: ', link);
                 } else {
-                    this.introSrcDiv.textContent = `来源: ${srcName}`;
+                    this.introSrcDiv.textContent = `来源: ${srcName || srcUrl}`;
                 }
             }
         }
@@ -1967,12 +2326,19 @@ class CS_VideoPlayerWidget {
             return;
         }
 
-        // 向后端请求视频数据（包含弹幕信息）
-        this.sendCommand('GET_CS_VIDEO_DATA', {
-            rootPath: this.rootPath,
-            videoPath: this.currentEpisode.path
-        });
+        this.requestCurrentEpisode();
+    }
 
+    requestCurrentEpisode() {
+        if (this.currentEpisode.available === false) {
+            this.showStreamErrorOverlay('本集暂无可播放的视频文件');
+            return;
+        }
+        this.clearStreamErrorOverlay();
+        this.videoDataRequestId = this.widgetId + ':metadata:' + (++this.videoPlaybackRequestSerial);
+        this.sendCommand('GET_CS_VIDEO_DATA', {
+            rootPath: this.rootPath, videoPath: this.currentEpisode.path, requestId: this.videoDataRequestId
+        });
     }
 
     /**
@@ -2773,6 +3139,10 @@ class CS_VideoPlayerWidget {
 
     requestCommentInfo() {
         if (!this.commentExpanded || !this.currentEpisode) return;
+        if (this.currentEpisode.available === false) {
+            this.setCommentContent('', '本集暂无视频文件');
+            return;
+        }
         const requestId = `${this.widgetId}_comment_info_${++this.commentRequestSerial}`;
         this.commentInfoRequestId = requestId;
         this.setCommentContent('', '正在读取评论信息…');
@@ -3756,10 +4126,7 @@ class CS_VideoPlayerWidget {
         if (this.haveComment && this.commentExpanded) {
             this.resetCommentPanelForEpisode(true);
         }
-        this.sendCommand('GET_CS_VIDEO_DATA', {
-            rootPath: this.rootPath,
-            videoPath: episode.path
-        });
+        this.requestCurrentEpisode();
     }
 
     supportsH265() {

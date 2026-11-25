@@ -27,13 +27,14 @@ JSON 格式，UTF-8 编码。
 | introduction-src | object | 否 | 简介来源信息 |
 | introduction-src.src-name | string | 否 | 来源名称（如 `"维基百科"`） |
 | introduction-src.src-url | string | 否 | 来源链接 |
-| year | number | 是 | 年份 |
-| month | number | 否 | 月份（1-12） |
+| year | integer | 否 | 放送年份，取值 1–9999。年月均省略时，详情页显示时间未知 |
+| month | integer | 否 | 放送月份，取值 1–12。填写月份时须同时填写年份；只知道年份时可省略月份 |
 | entry-time | number | 是 | 入库时间戳（Unix 时间戳，单位：秒） |
+| enable-episode-map | boolean | 否 | 剧集映射开关，默认 `true`。`false` 时保留已保存的映射，详情页按可读视频的文件名升序显示并编号 |
 | episode-map | object[] | 否 | 剧集映射列表（用于自定义剧集顺序） |
-| episode-map[].order | number | 否 | 剧集序号 |
-| episode-map[].path | string | 否 | 视频文件名 |
-| episode-map[].name | string | 否 | 剧集名称 |
+| episode-map[].order | integer | 是 | 剧集序号 |
+| episode-map[].path | string | 是 | 番剧目录下的视频文件名，含扩展名。同一可读视频只能映射一次。 |
+| episode-map[].name | string | 否 | 剧集名称。编辑器保存未命名剧集时写入空字符串 |
 
 ### 详细说明
 
@@ -76,7 +77,7 @@ JSON 格式，UTF-8 编码。
 
 #### 5. episode-map 字段
 
-`episode-map` 字段用于自定义剧集的显示顺序和名称。如果未提供，系统会按文件名排序并自动编号。
+`episode-map` 字段用于自定义剧集的显示顺序和名称。如果未提供，系统会按文件名排序并自动编号。映射启用时，文件名为空、文件缺失或不可读的项作为候补剧集保留，可在编辑页修改文件名或删除。目录内出现对应的可读视频后，重新读取详情即可播放。
 
 示例：
 
