@@ -98,3 +98,6 @@ build/server-linux/release/
 
 #项目外部文件
 show_tree.bat
+
+# 旧文档
+docs/旧设计文档/
